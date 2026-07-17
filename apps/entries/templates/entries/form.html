@@ -2,7 +2,7 @@
 {% block title %}{% if object %}Edit Entry{% else %}New Entry{% endif %} — SCD Reporting{% endblock %}
 
 {% block content %}
-<div class="mb-4 max-w-2xl">
+<div class="mb-4 max-w-[160ch]">
   <a href="{% if object %}{% url 'entries:detail' object.pk %}{% else %}{% url 'entries:list' %}{% endif %}"
      class="text-sm text-scd-primary hover:underline">
     ← {% if object %}Back to entry{% else %}My Entries{% endif %}
@@ -13,7 +13,7 @@
 </div>
 
 <div class="lg:flex lg:gap-8 lg:items-start">
- <div class="max-w-2xl w-full min-w-0">
+ <div class="max-w-[160ch] w-full min-w-0">
 
   <form method="post" novalidate>
     {% csrf_token %}
