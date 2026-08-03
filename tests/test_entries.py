@@ -427,6 +427,35 @@ class TestMarkdownPreview:
         resp = client.post(reverse('entries:markdown-preview'), {'description': ''})
         assert resp.status_code == 200
 
+    def test_autolinks_bare_url(self, client, user):
+        client.force_login(user)
+        resp = client.post(reverse('entries:markdown-preview'), {
+            'description': 'See https://cds.cern.ch/record/2967685 for details.',
+        })
+        assert resp.status_code == 200
+        assert (
+            b'<a href="https://cds.cern.ch/record/2967685">'
+            b'https://cds.cern.ch/record/2967685</a>' in resp.content
+        )
+
+    def test_autolink_does_not_swallow_trailing_punctuation(self, client, user):
+        client.force_login(user)
+        resp = client.post(reverse('entries:markdown-preview'), {
+            'description': 'Visit https://example.com, then https://example.com/other.',
+        })
+        assert resp.status_code == 200
+        assert b'<a href="https://example.com">https://example.com</a>,' in resp.content
+        assert b'<a href="https://example.com/other">https://example.com/other</a>.' in resp.content
+
+    def test_autolink_does_not_duplicate_existing_markdown_link(self, client, user):
+        client.force_login(user)
+        resp = client.post(reverse('entries:markdown-preview'), {
+            'description': '[the paper](https://example.com/already)',
+        })
+        assert resp.status_code == 200
+        assert resp.content.count(b'<a ') == 1
+        assert b'<a href="https://example.com/already">the paper</a>' in resp.content
+
 
 # ── Entry description templates ───────────────────────────────────────────────
 
