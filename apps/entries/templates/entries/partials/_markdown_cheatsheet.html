@@ -1,7 +1,7 @@
 {% comment %}
 Markdown quick-reference shown beside the entry form.
 Keep rows in sync with apps/core/markdown.py (render_markdown):
-fenced_code + tables, headings h1-h3, no images.
+fenced_code + tables, headings h1-h3, no images, bare URLs auto-link.
 {% endcomment %}
 <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
 
@@ -26,6 +26,10 @@ fenced_code + tables, headings h1-h3, no images.
     <div class="px-4 py-2 flex items-center justify-between gap-3">
       <dt class="text-xs text-slate-500 shrink-0">Link</dt>
       <dd class="font-mono text-xs text-slate-700 bg-slate-50 rounded px-1.5 py-0.5">[text](https://…)</dd>
+    </div>
+    <div class="px-4 py-2 flex items-center justify-between gap-3">
+      <dt class="text-xs text-slate-500 shrink-0">Auto-link</dt>
+      <dd class="font-mono text-xs text-slate-700 bg-slate-50 rounded px-1.5 py-0.5">https://…</dd>
     </div>
     <div class="px-4 py-2 flex items-center justify-between gap-3">
       <dt class="text-xs text-slate-500 shrink-0">Bullet list</dt>
