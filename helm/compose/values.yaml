@@ -71,6 +71,7 @@ gunicorn:
 anthropic:
   apiKey: ""
   summaryModel: "claude-sonnet-4-6"
+  baseUrl: ""
 
 # ── Email (SMTP) ───────────────────────────────────────────────────────────────
 email:

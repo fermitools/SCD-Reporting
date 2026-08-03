@@ -54,8 +54,8 @@ def generate(qs, user=None, template=None) -> str:
         system_prompt = config.system_prompt
         user_template = config.user_template
 
-    model = getattr(settings, 'ANTHROPIC_SUMMARY_MODEL', 'claude-sonnet-4-6')
-    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', '') or None
+    model = settings.ANTHROPIC_SUMMARY_MODEL
+    base_url = settings.ANTHROPIC_BASE_URL or None
     client = anthropic.Anthropic(api_key=api_key, **({"base_url": base_url} if base_url else {}))
     message = client.messages.create(
         model=model,
@@ -63,4 +63,5 @@ def generate(qs, user=None, template=None) -> str:
         system=system_prompt,
         messages=[{'role': 'user', 'content': user_template.format(entries=_format_entries(qs))}],
     )
-    return message.content[0].text
+    text_blocks = [block.text for block in message.content if block.type == 'text']
+    return '\n'.join(text_blocks)

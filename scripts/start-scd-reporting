@@ -9,6 +9,10 @@
 #                                  (or set SCD_INITIAL_ADMIN_PASSWORD env var)
 #   --anthropic-key  <key>         Anthropic API key for the AI Summary feature
 #                                  (or set ANTHROPIC_API_KEY env var)
+#   --anthropic-model <model>      Model name for the AI Summary feature (default: claude-sonnet-4-6)
+#                                  (or set ANTHROPIC_SUMMARY_MODEL env var)
+#   --anthropic-base-url <url>     Base URL for the Anthropic API, e.g. to route through a proxy
+#                                  (or set ANTHROPIC_BASE_URL env var)
 #   --oidc-secret-file <path>      Path to a file containing the OIDC client secret
 #                                  (or set OIDC_CLIENT_SECRET_FILE env var)
 #   --oidc-provider-url <url>      OIDC discovery URL or base realm URL
@@ -70,6 +74,8 @@ fi
 # ── Argument parsing ──────────────────────────────────────────────────────────
 ADMIN_PASSWORD="${SCD_INITIAL_ADMIN_PASSWORD:-}"
 ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-}"
+ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-}"
+ANTHROPIC_SUMMARY_MODEL="${ANTHROPIC_SUMMARY_MODEL:-}"
 OIDC_SECRET_FILE="${OIDC_CLIENT_SECRET_FILE:-}"
 OIDC_PROVIDER_URL="${OIDC_PROVIDER_URL:-}"
 OIDC_CLIENT_ID="${OIDC_CLIENT_ID:-}"
@@ -85,6 +91,8 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --admin-password)       ADMIN_PASSWORD="$2";       shift 2 ;;
     --anthropic-key)        ANTHROPIC_KEY="$2";        shift 2 ;;
+    --anthropic-model)      ANTHROPIC_SUMMARY_MODEL="$2"; shift 2 ;;
+    --anthropic-base-url)   ANTHROPIC_BASE_URL="$2";   shift 2 ;;
     --oidc-secret-file)     OIDC_SECRET_FILE="$2";     shift 2 ;;
     --oidc-provider-url)    OIDC_PROVIDER_URL="$2";    shift 2 ;;
     --oidc-client-id)       OIDC_CLIENT_ID="$2";       shift 2 ;;
@@ -219,11 +227,18 @@ fi
 if [[ -n "$GOOGLE_CLIENT_ID" && -n "$GOOGLE_CLIENT_SECRET" ]]; then
   success "Google OAuth enabled"
 fi
-
+#
+# AI Settings
 export ANTHROPIC_API_KEY="$ANTHROPIC_KEY"
+export ANTHROPIC_BASE_URL="$ANTHROPIC_BASE_URL"
+export ANTHROPIC_SUMMARY_MODEL="$ANTHROPIC_SUMMARY_MODEL"
+#
+# SSO Settings
 export OIDC_CLIENT_SECRET_FILE="$OIDC_SECRET_FILE"
 export OIDC_PROVIDER_URL="$OIDC_PROVIDER_URL"
 export OIDC_CLIENT_ID="$OIDC_CLIENT_ID"
+#
+# Google Login Settings
 export GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID"
 export GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET"
 nohup python manage.py runserver "$HOST:$PORT" >> "$LOG_FILE" 2>&1 &
