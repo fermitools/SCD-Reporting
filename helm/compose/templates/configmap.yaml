@@ -19,6 +19,7 @@ data:
   GUNICORN_TIMEOUT: {{ .Values.gunicorn.timeout | quote }}
   GUNICORN_LOG_LEVEL: {{ .Values.gunicorn.logLevel | quote }}
   ANTHROPIC_SUMMARY_MODEL: {{ .Values.anthropic.summaryModel | quote }}
+  ANTHROPIC_BASE_URL: {{ .Values.anthropic.baseUrl | quote }}
   EMAIL_HOST: {{ .Values.email.host | quote }}
   EMAIL_PORT: {{ .Values.email.port | quote }}
   EMAIL_HOST_USER: {{ .Values.email.user | quote }}
