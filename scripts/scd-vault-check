@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Diagnose the Vault -> Django secret wiring without starting the application.
+
+Reports which sections resolve, which environment variables they would set, and
+which are shadowed by an existing environment variable. Secret values are never
+printed — only names, lengths and a short fingerprint.
+
+See scd-vault-check(1) for full documentation.
+"""
+
+import argparse
+import hashlib
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from scd_reporting.vault import (  # noqa: E402
+    SECRET_MAP,
+    VaultConfigError,
+    _client,
+    _read_section,
+    _split_mount,
+)
+
+ENVIRONMENTS = {
+    'test': 'okd/shared/test/scd-reporting',
+    'prod': 'okd/shared/prod/scd-reporting',
+}
+
+
+def fingerprint(value):
+    return hashlib.sha256(value.encode()).hexdigest()[:8]
+
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(
+        prog='scd-vault-check',
+        description='Verify the Vault secret layout used by scd-reporting.',
+    )
+    p.add_argument('-e', '--env', choices=sorted(ENVIRONMENTS),
+                   help='shorthand for the standard test/prod secret path')
+    p.add_argument('-p', '--path', help='explicit KV v2 prefix, mount included')
+    p.add_argument('-a', '--addr', help='Vault address (default: $VAULT_ADDR)')
+    p.add_argument('--show-missing', action='store_true',
+                   help='also list sections and keys that are absent')
+    p.add_argument('-q', '--quiet', action='store_true',
+                   help='exit status only, no output')
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
+    # Precedence: command line > environment > built-in default.
+    addr = args.addr or os.environ.get('VAULT_ADDR', '').strip()
+    path = args.path or (ENVIRONMENTS[args.env] if args.env else '') \
+        or os.environ.get('VAULT_SECRET_PATH', '').strip()
+
+    if not addr:
+        print('error: no Vault address (use --addr or set VAULT_ADDR)', file=sys.stderr)
+        return 2
+    if not path:
+        print('error: no secret path (use --env, --path, or set VAULT_SECRET_PATH)',
+              file=sys.stderr)
+        return 2
+
+    try:
+        mount, base = _split_mount(path)
+        client = _client(addr)
+    except VaultConfigError as exc:
+        print('error: {}'.format(exc), file=sys.stderr)
+        return 3
+
+    if not args.quiet:
+        print('Vault  : {}'.format(addr))
+        print('Path   : {}/{}'.format(mount, base))
+        print()
+        print('{:<12}{:<28}{:<30}{}'.format('SECTION', 'KEY', 'ENV VAR', 'STATUS'))
+        print('-' * 92)
+
+    problems = 0
+    for section, keys in sorted(SECRET_MAP.items()):
+        try:
+            data = _read_section(client, mount, base, section)
+        except VaultConfigError as exc:
+            problems += 1
+            if not args.quiet:
+                print('{:<12}{}'.format(section, exc))
+            continue
+
+        if data is None:
+            if args.show_missing and not args.quiet:
+                for key, env_name in sorted(keys.items()):
+                    print('{:<12}{:<28}{:<30}{}'.format(
+                        section, key, env_name, 'section absent'))
+            continue
+
+        for key, env_name in sorted(keys.items()):
+            value = data.get(key)
+            if not value:
+                if args.show_missing and not args.quiet:
+                    print('{:<12}{:<28}{:<30}{}'.format(
+                        section, key, env_name, 'key absent'))
+                continue
+            if os.environ.get(env_name, '').strip():
+                status = 'SHADOWED by existing env var'
+            else:
+                status = 'ok  len {:<4} sha {}'.format(len(value), fingerprint(value))
+            if not args.quiet:
+                print('{:<12}{:<28}{:<30}{}'.format(section, key, env_name, status))
+
+    if not args.quiet:
+        print()
+        print('{} section(s) unreadable'.format(problems) if problems
+              else 'All readable sections resolved.')
+    return 1 if problems else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

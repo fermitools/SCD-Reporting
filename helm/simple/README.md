@@ -44,6 +44,8 @@ oc rollout restart deployment/web -n scd-reporting
 | `replicaCount` | `1` | Number of web pods |
 | `service.port` | `8000` | ClusterIP service port |
 | `route.hostname` | `""` | Public hostname — creates an OKD Route when set |
+| `route.timeout` | `300s` | HAProxy router request timeout — keep >= `gunicorn.timeout` |
+| `route.ingressController` | `""` | Value of the `ingresscontroller` Route label routers shard on. **Leave empty** unless DNS is repointed at the same router — see warning below |
 | `certManager.enabled` | `false` | Create a cert-manager `Certificate` resource |
 | `certManager.clusterIssuer` | `incommon-acme` | `ClusterIssuer` name |
 | `certManager.secretName` | `scd-reporting-tls` | Secret cert-manager writes the TLS cert into |
@@ -100,6 +102,46 @@ route:
 certManager:
   enabled: true
   externalCertificate: true
+```
+
+---
+
+## Router sharding (`route.ingressController`) — read before setting
+
+The cluster runs two IngressControllers, each with its own ingress endpoint:
+
+| Router | Default cert | IP |
+|---|---|---|
+| `default` | `*.apps.okdprod1.fnal.gov` | `131.225.163.40` |
+| `public-proxy` | `*.apps.okdprod.fnal.gov` | `131.225.163.71` |
+
+The `ingresscontroller` Route label decides which router serves the route. DNS decides
+where clients go. **These two must agree** — if they disagree the hostname lands on a
+router that no longer holds the route, which answers with its own wildcard cert and
+`503 Application is not available`. Changing one without the other is a hard outage
+(this happened on 2026-08-06).
+
+Current state, as of 2026-08-06:
+
+```
+scd-reporting.fnal.gov -> okdprod1-ingress.fnal.gov -> 131.225.163.71   (public-proxy)
+route.ingressController: public-proxy
+```
+
+Either direction of change is **two parts that must land together**:
+
+1. Networking repoints `scd-reporting.fnal.gov` at the target router's IP.
+2. This value is set to match (`public-proxy`, or `""` for the default router).
+
+Note the TTL: DNS records carry a 21600s (6h) TTL, so after a repoint, clients with a
+cached answer keep hitting the *old* router until their cache expires. Expect a tail of
+503s during that window — it is not a misconfiguration.
+
+Verify after any change to this value:
+
+```bash
+oc get route web -n scd-reporting -o jsonpath='{range .status.ingress[*]}{.routerName}{"\t"}{.routerCanonicalHostname}{"\n"}{end}'
+curl -sS -o /dev/null -w '%{http_code}\n' https://scd-reporting.fnal.gov/   # expect 302
 ```
 
 ---

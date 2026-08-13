@@ -370,6 +370,154 @@ Slick right?  Basically you put the reference in the `.env` file which makes
 startup ease, and the actual value in a different place which can be read
 at run time.
 
+### Fetching secrets from HashiCorp Vault
+
+Better still: don't ship the secrets with the deployment at all. Give the pod a
+short-lived Vault token and let it fetch its own secrets at startup.
+
+`scripts/get-vault-apptoken.sh` produces that token. Your personal LDAP login to
+Vault is long-lived, so the script only performs it when you don't already have
+a valid session — otherwise it goes straight to work and prompts for nothing. It
+then reads the AppRole `role_id`, generates a fresh `secret_id`, exchanges the
+pair for an application token, and verifies the result:
+
+```bash
+# Just print a token
+./scripts/get-vault-apptoken.sh
+
+# Load it into the current shell
+eval "$(./scripts/get-vault-apptoken.sh --format env)"
+
+# Confirm the token can actually read the app's secrets
+./scripts/get-vault-apptoken.sh --check-path secret/scd-reporting
+```
+
+To deploy with it, add `--vault` and the deploy script does the whole dance —
+fetch the token, write a temporary 0600 Helm values fragment, pass it to
+`helm upgrade`, and delete it on exit (including on Ctrl-C):
+
+```bash
+./scripts/deploy.sh -f my-values.yaml --vault
+```
+
+That sets `VAULT_ADDR`, `VAULT_APPROLE`, `VAULT_APPROLE_MOUNT`, `VAULT_SECRET_PATH`
+and `VAULT_TOKEN` in the pod's environment. The vault values are empty by
+default, so deployments that don't pass `--vault` are unaffected.
+
+The application token is **short-lived**. It is meant to be consumed at startup,
+not to sit in a file — once it expires the pod needs a redeploy with a fresh
+one. Never put a real `vault.token` in `my-values.yaml` or any committed file.
+
+### How the application consumes the secrets
+
+`scd_reporting/vault.py` runs at the top of `settings/base.py`, before any
+setting reads the environment. It fetches each section and injects the values as
+environment variables, so every existing `os.environ.get(...)` in the settings
+keeps working unchanged — nothing downstream knows Vault is involved.
+
+The layout is one KV v2 secret per service beneath a per-environment prefix:
+
+| Vault path (relative to `VAULT_SECRET_PATH`) | key | environment variable |
+|---|---|---|
+| `anthropic` | `api_key` | `ANTHROPIC_API_KEY` |
+| `django` | `secret_key` | `DJANGO_SECRET_KEY` |
+| `django` | `initial_admin_password` | `SCD_INITIAL_ADMIN_PASSWORD` |
+| `email` | `password` | `EMAIL_HOST_PASSWORD` |
+| `google` | `client_secret` | `GOOGLE_CLIENT_SECRET` |
+| `oidc` | `client_secret` | `OIDC_CLIENT_SECRET` |
+| `postgres` | `password` | `POSTGRES_PASSWORD` |
+
+`VAULT_SECRET_PATH` selects the environment — `okd/shared/prod/scd-reporting` or
+`okd/shared/test/scd-reporting`. `deploy.sh` defaults to the prod path; override
+with `--vault-path` or `$SCD_VAULT_PATH`:
+
+```bash
+./scripts/deploy.sh -f my-values.yaml --vault --vault-path okd/shared/test/scd-reporting
+```
+
+Sections that don't exist are skipped, so a partially populated environment
+still boots. The `github` section is part of the shared house layout but is not
+populated here; GitHub credentials continue to come from the Helm secret.
+
+**Precedence: an environment variable already set to a non-empty value wins over
+Vault.** This keeps the project-wide ordering (command line > environment >
+config source > defaults) and means a value pinned in `my-values.yaml` still
+overrides Vault. The chart ships those keys as empty strings, which count as
+unset, so in a normal deploy Vault fills them.
+
+#### Postgres
+
+The password is in Vault but `DATABASE_URL` is assembled in the ConfigMap, where
+the password isn't available. Put a placeholder in the URL and the loader
+substitutes the value (URL-encoding it) after reading Vault:
+
+```yaml
+database:
+  url: "postgres://scd:${POSTGRES_PASSWORD}@db:5432/scd"
+```
+
+A `DATABASE_URL` without the placeholder is left untouched, so the SQLite
+default is unaffected.
+
+#### Failure behaviour
+
+If Vault is configured but unreachable, or the token has expired, the pod
+**fails to start** rather than booting with an insecure fallback `SECRET_KEY`.
+That is the intended behaviour: a Vault failure should be loud. To let the pod
+start anyway and fall back to ConfigMap/Secret values, set `vault.optional: "1"`
+in your values file.
+
+Because the app token is short-lived, a pod that restarts after the token
+expires will crash-loop until you redeploy with a fresh one. Check the pod logs
+for `Vault rejected the supplied credentials`.
+
+#### Verifying before you deploy
+
+`scripts/scd-vault-check` walks the same section map the application uses and
+reports what would resolve, without starting Django. Values are never printed —
+each key shows its length and a short SHA-256 fingerprint, enough to confirm
+test and prod really differ or that a rotation took effect.
+
+```bash
+export VAULT_ADDR=https://ssivault.fnal.gov:8200
+export VAULT_TOKEN=$(vault print token)
+./scripts/scd-vault-check --env prod
+./scripts/scd-vault-check --env prod --show-missing   # include absent keys
+```
+
+Exit status is 0 when every existing section was readable, 1 on a policy
+problem, 2 on a usage error and 3 when Vault can't be reached. See
+`man/scd-vault-check.1`.
+
+#### If you get `403 permission denied` on the secret-id
+
+That almost always means `~/.vault-token` holds an **application** token instead
+of your own login — the last line of the old manual recipe,
+`vault login -method=token s.…`, replaces your LDAP session with the app token.
+An app token can read its own `role-id` but is not allowed to mint a new
+`secret-id`, so Vault returns a 403.
+
+The script now checks for this before it gets that far and re-prompts you to log
+in. To confirm what your current session actually is:
+
+```bash
+vault token lookup                                    # look at display_name / path
+vault token capabilities auth/td-approles/role/scd-mu2e-app/secret-id
+```
+
+A personal login shows `display_name  ldap-<user>` and `create`/`update` on that
+path; an app token shows `display_name  td-approles` and only `list, read`. Get
+your own session back with `vault login -method=ldap`, or just run the script
+with `--force-login`. This is also why `--set-local-token` is not the default.
+
+Defaults (server address, role, mount) can be put in `config/vault.yaml` —
+copy `config/vault.yaml.example` — and are overridden by environment variables,
+which are in turn overridden by command-line flags. Full documentation:
+
+```bash
+man ./man/get-vault-apptoken.1
+```
+
 ### Never commit `.env`
 
 `.env` is listed in `.gitignore`. If you accidentally commit it, rotate all

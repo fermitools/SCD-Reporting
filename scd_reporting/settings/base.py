@@ -3,7 +3,15 @@ from pathlib import Path
 
 import dj_database_url
 
+from scd_reporting.vault import load_vault_secrets
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Pull secrets from Vault into os.environ before anything below reads them.
+# No-op unless VAULT_ADDR and VAULT_SECRET_PATH are both set, so local and
+# docker-compose runs are unaffected. Environment variables that are already
+# set win over Vault — see scd_reporting/vault.py.
+load_vault_secrets()
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-only-change-in-production')
 

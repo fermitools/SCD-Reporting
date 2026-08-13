@@ -1,0 +1,151 @@
+.TH SCD-VAULT-CHECK 1 "2026-08-13" "SCD Reporting v0.2.0" "SCD Reporting"
+.SH NAME
+scd-vault-check \- verify the Vault secret layout that SCD Reporting loads at startup
+.SH SYNOPSIS
+.B ./scripts/scd-vault-check
+[\fB\-e\fR \fIENV\fR]
+[\fB\-p\fR \fIPATH\fR]
+[\fB\-a\fR \fIADDR\fR]
+[\fB\-\-show\-missing\fR]
+[\fB\-q\fR]
+.SH DESCRIPTION
+.B scd-vault-check
+answers the question "will the pod actually get its secrets?" without starting
+Django, building an image, or deploying anything. It authenticates to Vault
+exactly as the application does, walks the same section map defined in
+.IR scd_reporting/vault.py ,
+and reports for every mapped key whether it resolves, which environment
+variable it would populate, and whether an existing environment variable would
+shadow it.
+.PP
+Secret values are never printed. Each resolved key is reported with its length
+and the first eight hex characters of its SHA\-256 digest, which is enough to
+confirm that two environments hold different values, or that a rotation
+actually took effect, without exposing the secret itself.
+.SH SECRET LAYOUT
+Secrets are stored one KV v2 secret per service beneath a per\-environment
+prefix:
+.PP
+.RS
+.nf
+okd/shared/<env>/scd\-reporting/anthropic   api_key
+okd/shared/<env>/scd\-reporting/django      secret_key, initial_admin_password
+okd/shared/<env>/scd\-reporting/email       password
+okd/shared/<env>/scd\-reporting/google      client_secret
+okd/shared/<env>/scd\-reporting/oidc        client_secret
+okd/shared/<env>/scd\-reporting/postgres    password
+.fi
+.RE
+.PP
+Sections that do not exist are skipped silently; only sections that exist but
+cannot be read are reported as problems. This is deliberate \(em the
+.I github
+section is part of the shared house layout but is not populated for this
+application.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-env " " \fIENV\fR
+Shorthand for the standard path of a known environment.
+.I ENV
+is
+.B test
+or
+.BR prod ,
+expanding to
+.I okd/shared/test/scd\-reporting
+and
+.I okd/shared/prod/scd\-reporting
+respectively.
+.TP
+.BR \-p ", " \-\-path " " \fIPATH\fR
+Explicit KV v2 prefix, mount included, for a path not covered by
+.BR \-\-env .
+.TP
+.BR \-a ", " \-\-addr " " \fIADDR\fR
+Vault server address. Defaults to
+.BR $VAULT_ADDR .
+.TP
+.B \-\-show\-missing
+Also list sections and keys that are absent. Useful when a secret appears not
+to reach the application and you need to tell "key missing" from "key shadowed".
+.TP
+.BR \-q ", " \-\-quiet
+Suppress all output and communicate only through the exit status, for use in
+scripts.
+.SH CONFIGURATION PRECEDENCE
+Command line, then environment, then built\-in default:
+.BR \-\-addr " > " $VAULT_ADDR ,
+and
+.BR \-\-path " > " \-\-env " > " $VAULT_SECRET_PATH .
+.SH AUTHENTICATION
+Credentials are resolved the same way the application resolves them:
+.B $VAULT_TOKEN
+if set, otherwise an AppRole login using
+.B $VAULT_ROLE_ID
+and
+.BR $VAULT_SECRET_ID ,
+with the auth mount taken from
+.B $VAULT_APPROLE_MOUNT
+(default
+.IR auth/approle ).
+For interactive use, your personal Vault session is normally sufficient:
+.PP
+.RS
+.nf
+export VAULT_ADDR=https://ssivault.fnal.gov:8200
+export VAULT_TOKEN=$(vault print token)
+\&./scripts/scd\-vault\-check \-\-env prod
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Every section that exists was readable.
+.TP
+.B 1
+At least one section exists but could not be read, typically a policy problem.
+.TP
+.B 2
+Usage error \(em no address or no secret path was supplied.
+.TP
+.B 3
+Could not connect to or authenticate against Vault.
+.SH EXAMPLES
+Check production before a deploy:
+.PP
+.RS
+.nf
+\&./scripts/scd\-vault\-check \-\-env prod
+.fi
+.RE
+.PP
+Confirm test and prod hold genuinely different values \(em compare the
+fingerprint columns:
+.PP
+.RS
+.nf
+\&./scripts/scd\-vault\-check \-\-env test
+\&./scripts/scd\-vault\-check \-\-env prod
+.fi
+.RE
+.PP
+Diagnose a secret that is not reaching the application, including the ones
+being shadowed by the local environment:
+.PP
+.RS
+.nf
+\&./scripts/scd\-vault\-check \-\-env prod \-\-show\-missing
+.fi
+.RE
+.SH FILES
+.TP
+.I scd_reporting/vault.py
+Defines
+.BR SECRET_MAP ,
+the single source of truth for the section\-to\-environment\-variable mapping
+that this tool and the application both use.
+.SH SEE ALSO
+.BR get-vault-apptoken (1),
+.BR deploy (1)
+.SH AUTHOR
+Andrew Norman

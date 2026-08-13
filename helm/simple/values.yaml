@@ -21,6 +21,17 @@ route:
   # long AI-summary requests before gunicorn (GUNICORN_TIMEOUT) returns. Keep
   # this >= gunicorn.timeout.
   timeout: 300s
+  # Adds the `ingresscontroller: <value>` label to the Route, which is how the
+  # cluster's IngressControllers shard routes between routers. This value MUST
+  # agree with where scd-reporting.fnal.gov points in DNS — changing one without
+  # the other is a hard outage (503 "Application is not available").
+  #
+  # As of 2026-08-06 DNS is:
+  #   scd-reporting.fnal.gov -> okdprod1-ingress.fnal.gov -> 131.225.163.71
+  # which is the public-proxy router (default cert *.apps.okdprod.fnal.gov).
+  # Do not change this back to "" without moving DNS back to 131.225.163.40
+  # (the default router). See README.md "Router sharding".
+  ingressController: public-proxy
 
 # ── cert-manager ───────────────────────────────────────────────────────────────
 certManager:
@@ -96,3 +107,26 @@ oidc:
   providerUrl: ""
   clientId: ""
   clientSecret: ""
+
+# ── HashiCorp Vault (optional) ────────────────────────────────────────────────
+# When token is non-empty the pod gets VAULT_ADDR / VAULT_TOKEN and can fetch
+# its own secrets at startup. Never set the token here — generate it at deploy
+# time with scripts/get-vault-apptoken.sh, which writes a values fragment:
+#   ./scripts/get-vault-apptoken.sh --format values -o /tmp/vault-values.yaml
+#   ./scripts/deploy.sh -f my-values.yaml --vault
+# The token is short-lived, so a redeploy is needed once it expires.
+vault:
+  addr: ""
+  role: "scd-mu2e-app"
+  mount: "auth/td-approles"
+  token: ""                  # REQUIRED at deploy time only — never commit
+  # KV v2 prefix holding this deployment's secrets, mount included. The app
+  # reads the per-service sections beneath it (django, oidc, email, ...).
+  # Set addr AND secretPath to turn the loader on:
+  #   test -> okd/shared/test/scd-reporting
+  #   prod -> okd/shared/prod/scd-reporting
+  secretPath: ""
+  # "1" lets the pod start when Vault is unreachable, falling back to whatever
+  # the ConfigMap/Secret provide. Default is fail-fast so a missing secret is
+  # loud rather than a silent boot with an insecure default SECRET_KEY.
+  optional: ""

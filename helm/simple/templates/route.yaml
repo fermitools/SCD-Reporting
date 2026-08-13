@@ -6,6 +6,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "scd-reporting-simple.labels" . | nindent 4 }}
+    {{- if .Values.route.ingressController }}
+    ingresscontroller: {{ .Values.route.ingressController }}
+    {{- end }}
   {{- if .Values.route.timeout }}
   annotations:
     haproxy.router.openshift.io/timeout: {{ .Values.route.timeout | quote }}

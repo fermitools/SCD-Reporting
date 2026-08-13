@@ -56,5 +56,10 @@ logs/
 my-values.yaml
 *-my-values.yaml
 
+# Vault (local config and anything holding a live app token)
+config/vault.yaml
+vault-values.yaml
+*vault-token*
+
 # Exported conversation transcripts (may contain secrets)
 *-transcript.md

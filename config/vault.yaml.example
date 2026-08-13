@@ -1,0 +1,34 @@
+# Defaults for scripts/get-vault-apptoken.sh
+#
+# Copy to config/vault.yaml (auto-detected) or ~/.config/scd-reporting/vault.yaml,
+# or point at it explicitly with --config / $SCD_VAULT_CONFIG.
+#
+# Precedence: command-line flags > environment variables > this file > built-in
+# defaults. Every key here is optional.
+#
+# This file must never contain a token or any other secret.
+
+# Vault server address.
+addr: "https://ssivault.fnal.gov:8200"
+
+# AppRole role name and the auth mount it lives under.
+role: "scd-mu2e-app"
+mount: "auth/td-approles"
+
+# LDAP username for the personal login. Defaults to $USER.
+# username: "anorman"
+
+# Personal login method: ldap | oidc | userpass
+method: "ldap"
+
+# Default output format: token | env | json | values
+format: "token"
+
+# Default output file. Leave unset to write the token to stdout.
+# output: "/tmp/scd-vault-token"
+
+# Re-login when the personal session has fewer than this many seconds left.
+min_ttl: 300
+
+# Optional: verify the app token can read this path before handing it over.
+# check_path: "secret/scd-reporting"

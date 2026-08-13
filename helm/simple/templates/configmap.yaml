@@ -1,3 +1,9 @@
+{{- if and .Values.vault.addr (not .Values.vault.secretPath) }}
+{{- fail "vault.addr is set but vault.secretPath is empty — the app would ignore Vault and boot on ConfigMap/Secret values. Set vault.secretPath (e.g. okd/shared/prod/scd-reporting) or clear vault.addr." }}
+{{- end }}
+{{- if and .Values.vault.secretPath (not .Values.vault.addr) }}
+{{- fail "vault.secretPath is set but vault.addr is empty — both are required to enable the Vault loader." }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,3 +35,12 @@ data:
   GOOGLE_CLIENT_ID: {{ .Values.google.clientId | quote }}
   OIDC_PROVIDER_URL: {{ .Values.oidc.providerUrl | quote }}
   OIDC_CLIENT_ID: {{ .Values.oidc.clientId | quote }}
+  {{- if .Values.vault.addr }}
+  VAULT_ADDR: {{ .Values.vault.addr | quote }}
+  VAULT_APPROLE: {{ .Values.vault.role | quote }}
+  VAULT_APPROLE_MOUNT: {{ .Values.vault.mount | quote }}
+  VAULT_SECRET_PATH: {{ .Values.vault.secretPath | quote }}
+  {{- if .Values.vault.optional }}
+  VAULT_OPTIONAL: {{ .Values.vault.optional | quote }}
+  {{- end }}
+  {{- end }}
