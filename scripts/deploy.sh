@@ -16,6 +16,11 @@
 #   --vault          Fetch a Vault AppRole token with
 #                    scripts/get-vault-apptoken.sh and pass it to Helm, so the
 #                    pod can retrieve its own secrets from Vault
+#   --vault-ldap     Like --vault, but hand the pod your personal LDAP token
+#                    instead of an AppRole token. STOPGAP for the AppRole
+#                    policy being denied on the secret paths — the personal
+#                    token is much broader and is attributed to you in Vault's
+#                    audit log. Revert to --vault once the policy is fixed.
 #   --vault-role R   AppRole role name to use with --vault
 #   --vault-path P   KV v2 prefix the app reads its secrets from, mount
 #                    included (default: okd/shared/prod/scd-reporting).
@@ -44,6 +49,7 @@ SKIP_HELM=false
 NO_CACHE=false
 DRY_RUN=false
 USE_VAULT=false
+VAULT_TOKEN_SOURCE=approle       # approle | ldap
 VAULT_ROLE="${SCD_VAULT_ROLE:-}"
 VAULT_PATH="${SCD_VAULT_PATH:-okd/shared/prod/scd-reporting}"
 VAULT_VALUES_FILE=""
@@ -93,6 +99,7 @@ while [[ $# -gt 0 ]]; do
         --skip-helm)  SKIP_HELM=true;   shift ;;
         --no-cache)   NO_CACHE=true;    shift ;;
         --vault)      USE_VAULT=true;   shift ;;
+        --vault-ldap) USE_VAULT=true; VAULT_TOKEN_SOURCE=ldap; shift ;;
         --vault-role) VAULT_ROLE="$2";  shift 2 ;;
         --vault-path) VAULT_PATH="$2";  shift 2 ;;
         --dry-run)    DRY_RUN=true;     shift ;;
@@ -138,7 +145,13 @@ info "Tag         : ${TAG}"
 info "Skip push   : ${SKIP_PUSH}"
 info "Skip build  : ${SKIP_BUILD}"
 info "Skip helm   : ${SKIP_HELM}"
-[[ "${USE_VAULT}" == true ]] && info "Vault       : fetch app token${VAULT_ROLE:+ (role ${VAULT_ROLE})}"
+if [[ "${USE_VAULT}" == true ]]; then
+    if [[ "${VAULT_TOKEN_SOURCE}" == ldap ]]; then
+        info "Vault       : personal LDAP token (STOPGAP — broader than the app needs)"
+    else
+        info "Vault       : fetch app token${VAULT_ROLE:+ (role ${VAULT_ROLE})}"
+    fi
+fi
 [[ "${DRY_RUN}" == true ]] && info "Mode        : DRY RUN — no changes will be made"
 echo
 
@@ -168,21 +181,84 @@ if [[ "${SKIP_HELM}" == false ]]; then
     HELM_VALUES_ARGS=(-f "${VALUES_FILE}")
 
     if [[ "${USE_VAULT}" == true ]]; then
-        step "3a — Fetching Vault application token"
-        TOKEN_SCRIPT="${SCRIPT_DIR}/get-vault-apptoken.sh"
-        [[ -x "${TOKEN_SCRIPT}" ]] || die "Not found or not executable: ${TOKEN_SCRIPT}"
-
         VAULT_VALUES_FILE="$(umask 077; mktemp "${TMPDIR:-/tmp}/scd-vault-values.XXXXXX")"
-        TOKEN_ARGS=(--format values -o "${VAULT_VALUES_FILE}")
-        [[ -n "${VAULT_ROLE}" ]]   && TOKEN_ARGS+=(--role "${VAULT_ROLE}")
-        [[ "${DRY_RUN}" == true ]] && TOKEN_ARGS+=(--dry-run)
 
-        # Not wrapped in run(): even on a dry run we want the token script's own
-        # dry-run output rather than silently skipping it.
-        "${TOKEN_SCRIPT}" "${TOKEN_ARGS[@]}" || die "Could not obtain a Vault app token"
+        if [[ "${VAULT_TOKEN_SOURCE}" == ldap ]]; then
+            # STOPGAP. The scd-mu2e-app AppRole token is denied on
+            # okd/data/shared/<env>/scd-reporting/*, so the pod cannot read its
+            # own secrets. Until that policy is fixed, hand the pod the
+            # operator's personal LDAP token instead.
+            #
+            # This token is far broader than the app needs (scd_mu2e_okd_rw,
+            # td_mu2e, td_nova — including WRITE on these paths) and Vault will
+            # attribute the pod's reads to the operator. Revert to --vault as
+            # soon as the AppRole policy grants read.
+            step "3a — Using your personal Vault login token (stopgap)"
+            command -v vault >/dev/null 2>&1 || die "The 'vault' CLI is not on PATH."
 
+            VAULT_LDAP_ADDR="${VAULT_ADDR:-}"
+            if [[ -z "${VAULT_LDAP_ADDR}" && -f "${REPO_ROOT}/config/vault.yaml" ]]; then
+                VAULT_LDAP_ADDR="$(sed -n 's/^addr:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
+                    "${REPO_ROOT}/config/vault.yaml" | head -1)"
+            fi
+            VAULT_LDAP_ADDR="${VAULT_LDAP_ADDR:-https://ssivault.fnal.gov:8200}"
+            export VAULT_ADDR="${VAULT_LDAP_ADDR}"
+
+            LDAP_TOKEN="$(vault print token 2>/dev/null || true)"
+            [[ -n "${LDAP_TOKEN}" ]] || die "No Vault session found. Run: vault login -method=ldap username=\${USER}"
+
+            TOKEN_DISPLAY="$(VAULT_TOKEN="${LDAP_TOKEN}" vault token lookup -format=json 2>/dev/null \
+                | sed -n 's/.*"display_name": "\([^"]*\)".*/\1/p' | head -1)"
+            [[ -n "${TOKEN_DISPLAY}" ]] || die "The stored Vault token is not valid. Re-run: vault login -method=ldap username=\${USER}"
+            info "Vault addr  : ${VAULT_ADDR}"
+            info "Identity    : ${TOKEN_DISPLAY}"
+            case "${TOKEN_DISPLAY}" in
+                ldap-*) ;;
+                *) die "~/.vault-token holds '${TOKEN_DISPLAY}', not an LDAP login. Run: vault login -method=ldap username=\${USER}" ;;
+            esac
+
+            ( umask 077; cat > "${VAULT_VALUES_FILE}" <<EOF
+# Generated by deploy.sh on $(date -u '+%Y-%m-%dT%H:%M:%SZ') — contains a live
+# personal Vault token. Do not commit. Deleted automatically on exit.
+vault:
+  addr: "${VAULT_ADDR}"
+  token: "${LDAP_TOKEN}"
+EOF
+            ) || die "Could not write ${VAULT_VALUES_FILE}"
+            chmod 600 "${VAULT_VALUES_FILE}" 2>/dev/null || true
+            ok "Personal token written to ${VAULT_VALUES_FILE} (mode 0600)"
+        else
+            step "3a — Fetching Vault application token"
+            TOKEN_SCRIPT="${SCRIPT_DIR}/get-vault-apptoken.sh"
+            [[ -x "${TOKEN_SCRIPT}" ]] || die "Not found or not executable: ${TOKEN_SCRIPT}"
+
+            TOKEN_ARGS=(--format values -o "${VAULT_VALUES_FILE}")
+            [[ -n "${VAULT_ROLE}" ]]   && TOKEN_ARGS+=(--role "${VAULT_ROLE}")
+            [[ "${DRY_RUN}" == true ]] && TOKEN_ARGS+=(--dry-run)
+
+            # Not wrapped in run(): even on a dry run we want the token script's own
+            # dry-run output rather than silently skipping it.
+            "${TOKEN_SCRIPT}" "${TOKEN_ARGS[@]}" || die "Could not obtain a Vault app token"
+        fi
+
+        # Pre-flight: prove the token we are about to hand the pod can actually
+        # read the secrets. Skipping this is how a deploy silently lands with a
+        # token that is denied on every path.
         if [[ "${DRY_RUN}" == false ]]; then
             [[ -s "${VAULT_VALUES_FILE}" ]] || die "Vault token file is empty: ${VAULT_VALUES_FILE}"
+            CHECK_TOKEN="$(sed -n 's/^  token: "\(.*\)"$/\1/p' "${VAULT_VALUES_FILE}" | head -1)"
+            CHECK_ADDR="$(sed -n 's/^  addr: "\(.*\)"$/\1/p' "${VAULT_VALUES_FILE}" | head -1)"
+            if [[ -n "${CHECK_TOKEN}" ]]; then
+                CAPS="$(VAULT_ADDR="${CHECK_ADDR}" VAULT_TOKEN="${CHECK_TOKEN}" \
+                    vault write -field=capabilities sys/capabilities-self \
+                    paths="$(echo "${VAULT_PATH}" | sed 's#/#/data/#')/django" 2>/dev/null || true)"
+                case "${CAPS}" in
+                    *read*) ok "Token can read ${VAULT_PATH}/django" ;;
+                    *) die "The token cannot read ${VAULT_PATH}/django (capabilities: ${CAPS:-none}).
+       The pod would start with Vault disabled and fall back to values-file
+       secrets. Fix the Vault policy, or use --vault-ldap for a stopgap." ;;
+                esac
+            fi
             HELM_VALUES_ARGS+=(-f "${VAULT_VALUES_FILE}")
             ok "Vault token will be passed to Helm"
         fi
