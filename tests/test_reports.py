@@ -375,5 +375,37 @@ class TestReportSummary:
         assert b'<h1>Summary</h1>' in resp.content
         assert b'<strong>safe</strong>' in resp.content
         assert b'<img' not in resp.content
-        assert b'<a>bad</a>' in resp.content
+        assert b'<a rel="noopener noreferrer">bad</a>' in resp.content
         assert b'<a href="javascript:' not in resp.content
+
+
+# ── PDF markdown tables (issue #13) ──────────────────────────────────────────
+
+class TestMdToPdfTables:
+    def test_cells_are_wrapping_paragraphs_within_frame(self):
+        from reportlab.platypus import Paragraph
+        from apps.reports._pdf import _build_table, _s
+        rows = [['Title', 'Author', 'Cat'],
+                ['A very long report title that must wrap ' * 4, 'someone@example.com', 'Ops']]
+        t = _build_table(rows, 400.0, _s())
+        assert all(isinstance(c, Paragraph) for row in t._cellvalues for c in row)
+        assert abs(sum(t._colWidths) - 400.0) < 1e-6
+        assert t._colWidths[0] > t._colWidths[1] > t._colWidths[2]
+
+    def test_ragged_rows_are_padded(self):
+        from apps.reports._pdf import _build_table, _s
+        t = _build_table([['a', 'b', 'c'], ['only-one']], 300.0, _s())
+        assert all(len(row) == 3 for row in t._cellvalues)
+
+    def test_inline_markdown_in_cells_is_escaped_and_styled(self):
+        from apps.reports._pdf import _build_table, _s
+        t = _build_table([['H'], ['**bold** <x>']], 200.0, _s())
+        assert '<b>bold</b>' in t._cellvalues[1][0].text
+        assert '&lt;x&gt;' in t._cellvalues[1][0].text
+
+    def test_long_table_renders_to_pdf(self):
+        from apps.reports._pdf import md_to_pdf
+        md = '| Title | Author |\n|---|---|\n' + ''.join(
+            f'| {"long title text " * 12} | user{i}@example.com |\n' for i in range(60))
+        pdf = md_to_pdf(md, 'Summary', 'meta')
+        assert pdf.startswith(b'%PDF')

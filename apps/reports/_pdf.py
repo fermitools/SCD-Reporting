@@ -33,16 +33,16 @@ def _s():
                                   textColor=_SLATE_800, spaceAfter=5, leading=13),
         'bullet': ParagraphStyle('bullet', fontName='Helvetica', fontSize=9,
                                   textColor=_SLATE_800, leftIndent=12, spaceAfter=2, leading=13),
+        'thead':  ParagraphStyle('thead',  fontName='Helvetica-Bold', fontSize=7, leading=9,
+                                  textColor=colors.white),
+        'tcell':  ParagraphStyle('tcell',  fontName='Helvetica', fontSize=7, leading=9,
+                                  textColor=_SLATE_800),
     }
 
 
 def _tbl_style():
     return TableStyle([
         ('BACKGROUND',    (0, 0), (-1, 0),  _PRIMARY),
-        ('TEXTCOLOR',     (0, 0), (-1, 0),  colors.white),
-        ('FONTNAME',      (0, 0), (-1, 0),  'Helvetica-Bold'),
-        ('FONTNAME',      (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE',      (0, 0), (-1, -1), 7),
         ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, _SLATE_50]),
         ('GRID',          (0, 0), (-1, -1), 0.3, _SLATE_200),
         ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
@@ -67,6 +67,35 @@ def _inline(text: str) -> str:
 
 
 _SEP_RE = re.compile(r'^\|[-: |]+\|$')
+
+
+def _table_col_widths(rows, avail_width):
+    """Share the frame width between columns in proportion to their longest cell."""
+    ncols = max(len(r) for r in rows)
+    weights = []
+    for c in range(ncols):
+        longest = max((len(r[c]) for r in rows if c < len(r)), default=1)
+        weights.append(max(longest, 4))          # never squeeze a column to nothing
+    total = sum(weights)
+    return [avail_width * w / total for w in weights]
+
+
+def _build_table(rows, avail_width, styles):
+    """Build a ReportLab Table whose cells wrap.
+
+    ReportLab only wraps text inside a cell when the cell is a Paragraph; plain
+    strings overflow their column (GitHub #13). Column widths are fixed so the
+    table never exceeds the frame, and the header row repeats on page breaks.
+    """
+    ncols = max(len(r) for r in rows)
+    rows = [r + [''] * (ncols - len(r)) for r in rows]   # tolerate ragged markdown rows
+    data = [
+        [Paragraph(_inline(cell), styles['thead'] if ri == 0 else styles['tcell']) for cell in row]
+        for ri, row in enumerate(rows)
+    ]
+    t = Table(data, colWidths=_table_col_widths(rows, avail_width), repeatRows=1)
+    t.setStyle(_tbl_style())
+    return t
 
 
 def md_to_pdf(markdown_text: str, title: str, meta: str) -> bytes:
@@ -107,13 +136,10 @@ def md_to_pdf(markdown_text: str, title: str, meta: str) -> bytes:
                 if not row.startswith('|'):
                     break
                 if not _SEP_RE.match(row):
-                    cells = [_safe(c.strip()) for c in row.split('|')[1:-1]]
-                    table_rows.append(cells)
+                    table_rows.append([c.strip() for c in row.split('|')[1:-1]])
                 i += 1
             if table_rows:
-                t = Table(table_rows)
-                t.setStyle(_tbl_style())
-                story.append(t)
+                story.append(_build_table(table_rows, doc.width, s))
                 story.append(Spacer(1, 6))
             continue
         elif stripped in ('---', '___', '***'):

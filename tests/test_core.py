@@ -89,3 +89,70 @@ class TestBugReportSubmit:
         resp = client.post(reverse('bug-report-submit'), {'title': 'Bug', 'body': 'desc'},
                            follow=True)
         assert 'not configured' in resp.content.decode()
+
+
+# ── Markdown sanitizer (issue #10) ────────────────────────────────────────────
+
+class TestRenderMarkdown:
+    """render_markdown must strip every scripting vector a browser would honour."""
+
+    @pytest.mark.parametrize('payload', [
+        '<script>alert(1)</script>',
+        '<img src=x onerror=alert(1)>',
+        '<svg/onload=alert(1)>',
+        '<iframe src="https://evil.example"></iframe>',
+        '<p onclick="alert(1)">t</p>',
+        '<a href="javascript:alert(1)">x</a>',
+        '<a href="JaVaScRiPt:alert(1)">x</a>',
+        '<a href="  javascript:alert(1)">x</a>',
+        '<a href="&#106;avascript:alert(1)">x</a>',
+        '<a href="java&#x09;script:alert(1)">x</a>',
+        '<a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">x</a>',
+        '<a href="vbscript:msgbox(1)">x</a>',
+        '[x](javascript:alert(1))',
+        '<scr<script>ipt>alert(1)</script>',
+        '<a href="https://ok.example" onmouseover=alert(1)//>x</a>',
+        '<style>body{background:url(javascript:alert(1))}</style>',
+        '<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>',
+        '<!--<img src=x onerror=alert(1)>-->',
+    ])
+    def test_blocks_xss_vectors(self, payload):
+        from apps.core.markdown import render_markdown
+        out = render_markdown(payload).lower()
+        for needle in ('<script', 'onerror', 'onload', 'onclick', 'onmouseover',
+                       'javascript:', 'vbscript:', 'data:', '<iframe', '<svg', '<style', '<!--'):
+            assert needle not in out, f'{needle!r} survived in {out!r}'
+
+    def test_keeps_allowed_markup(self):
+        from apps.core.markdown import render_markdown
+        out = render_markdown(
+            '# Head\n\n**bold** and *em* with `code` and [link](https://example.com "t") '
+            'plus [mail](mailto:a@b.example) and [rel](/entries/)\n\n'
+            '| Col | Num |\n|:----|----:|\n| a | 1 |\n\n```\nraw <b>\n```\n\n---\n'
+        )
+        assert '<h1>Head</h1>' in out
+        assert '<strong>bold</strong>' in out and '<em>em</em>' in out
+        assert '<code>code</code>' in out
+        assert 'href="https://example.com"' in out and 'title="t"' in out
+        assert 'href="mailto:a@b.example"' in out
+        assert 'href="/entries/"' in out
+        assert '<table>' in out and 'text-align:right' in out
+        assert '<pre><code>raw &lt;b&gt;' in out
+        assert '<hr>' in out
+
+    def test_links_get_noopener(self):
+        from apps.core.markdown import render_markdown
+        out = render_markdown('[x](https://example.com)')
+        assert 'rel="noopener noreferrer"' in out
+
+    def test_bare_url_autolinked_and_sanitized(self):
+        from apps.core.markdown import render_markdown
+        out = render_markdown('see https://example.com/a?b=1.')
+        assert '<a href="https://example.com/a?b=1"' in out
+        assert 'javascript' not in render_markdown('see javascript:alert(1)').lower() or \
+               '<a' not in render_markdown('see javascript:alert(1)')
+
+    def test_empty_and_none(self):
+        from apps.core.markdown import render_markdown
+        assert render_markdown('') == ''
+        assert render_markdown(None) == ''

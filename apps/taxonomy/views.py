@@ -1,8 +1,11 @@
 import json
 from datetime import datetime, timezone
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
+from django.db import DataError, IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
@@ -206,6 +209,10 @@ class TaxonomyExportView(AdminRequiredMixin, View):
         return response
 
 
+class TaxonomyImportError(Exception):
+    """A record in an uploaded taxonomy file could not be applied."""
+
+
 class TaxonomyImportView(AdminRequiredMixin, View):
     TABLES = {
         'projects':       Project,
@@ -215,11 +222,22 @@ class TaxonomyImportView(AdminRequiredMixin, View):
         'lab_priorities': LabPriority,
     }
     FIELDS = ('name', 'short_code', 'is_active', 'sort_order')
+    # A real export is a few kilobytes; this only guards against reading an
+    # arbitrarily large upload into memory. Override with TAXONOMY_IMPORT_MAX_BYTES.
+    DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 
     def post(self, request):
         upload = request.FILES.get('taxonomy_file')
         if not upload:
             messages.error(request, 'No file selected.')
+            return redirect('taxonomy:projects')
+
+        max_bytes = getattr(settings, 'TAXONOMY_IMPORT_MAX_BYTES', self.DEFAULT_MAX_BYTES)
+        if upload.size > max_bytes:
+            messages.error(
+                request,
+                f'File is too large ({upload.size:,} bytes; the limit is {max_bytes:,} bytes).',
+            )
             return redirect('taxonomy:projects')
 
         try:
@@ -232,25 +250,11 @@ class TaxonomyImportView(AdminRequiredMixin, View):
             messages.error(request, 'File does not look like a taxonomy export.')
             return redirect('taxonomy:projects')
 
-        totals = {}
-        for key, model in self.TABLES.items():
-            records = data.get(key, [])
-            created = updated = 0
-            for rec in records:
-                slug = rec.get('slug', '').strip()
-                name = rec.get('name', '').strip()
-                if not slug and not name:
-                    continue
-                defaults = {f: rec[f] for f in self.FIELDS if f in rec}
-                if slug:
-                    obj, is_new = model.objects.update_or_create(slug=slug, defaults=defaults)
-                else:
-                    obj, is_new = model.objects.update_or_create(name=name, defaults=defaults)
-                if is_new:
-                    created += 1
-                else:
-                    updated += 1
-            totals[key] = (created, updated)
+        try:
+            totals = self._restore(data)
+        except TaxonomyImportError as e:
+            messages.error(request, f'Import aborted, no changes were made: {e}')
+            return redirect('taxonomy:projects')
 
         parts = [
             f"{key}: {c} created, {u} updated"
@@ -258,6 +262,40 @@ class TaxonomyImportView(AdminRequiredMixin, View):
         ]
         messages.success(request, 'Taxonomy restored — ' + '; '.join(parts) + '.')
         return redirect('taxonomy:projects')
+
+    def _restore(self, data):
+        """Apply every table in one transaction; any bad record rolls back all of it."""
+        totals = {}
+        with transaction.atomic():
+            for key, model in self.TABLES.items():
+                records = data.get(key, [])
+                if not isinstance(records, list):
+                    raise TaxonomyImportError(f'"{key}" must be a list of records.')
+                created = updated = 0
+                for idx, rec in enumerate(records, 1):
+                    if not isinstance(rec, dict):
+                        raise TaxonomyImportError(f'{key} record #{idx} is not an object.')
+                    slug = str(rec.get('slug') or '').strip()
+                    name = str(rec.get('name') or '').strip()
+                    if not slug and not name:
+                        continue
+                    defaults = {f: rec[f] for f in self.FIELDS if f in rec}
+                    try:
+                        if slug:
+                            obj, is_new = model.objects.update_or_create(slug=slug, defaults=defaults)
+                        else:
+                            obj, is_new = model.objects.update_or_create(name=name, defaults=defaults)
+                    except (IntegrityError, DataError, ValidationError, TypeError, ValueError) as e:
+                        label = slug or name
+                        raise TaxonomyImportError(
+                            f'{key} record "{label}" (#{idx}) could not be saved: {e}'
+                        ) from e
+                    if is_new:
+                        created += 1
+                    else:
+                        updated += 1
+                totals[key] = (created, updated)
+        return totals
 
 
 class TagAutocompleteView(LoginRequiredMixin, View):

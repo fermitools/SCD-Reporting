@@ -66,6 +66,7 @@ Each app is independently namespaced and has its own URLs, templates, and tests.
 | Frontend | Tailwind CSS 3 via django-tailwind, HTMX 2 |
 | Database | PostgreSQL 16 (production), SQLite (local dev fallback) |
 | PDF export | reportlab (pure Python, no system dependencies) |
+| Markdown sanitising | nh3 (Rust `ammonia` bindings; HTML5-conformant allowlist sanitizer) |
 | XLSX export | openpyxl |
 | AI summary | Anthropic Python SDK (claude-sonnet-4-6 by default) |
 | Filtering | django-filter |
@@ -323,6 +324,7 @@ Role assignment is done via the Admin Users page (`/admin-users/`) by an Adminis
 | `GITHUB_APP_INSTALLATION_ID` | *(empty)* | GitHub App installation ID |
 | `GITHUB_APP_PRIVATE_KEY` | *(empty)* | GitHub App PEM private key (use `\n` for newlines) |
 | `GITHUB_TOKEN` | *(empty)* | PAT fallback if App credentials are not set |
+| `TAXONOMY_IMPORT_MAX_BYTES` | `5242880` | Size limit (bytes) for the admin taxonomy JSON import |
 | `OIDC_OP_DISCOVERY_ENDPOINT` | *(empty)* | OIDC provider discovery URL; enables SSO button when set |
 | `OIDC_RP_CLIENT_ID` | *(empty)* | OIDC client ID |
 | `OIDC_RP_CLIENT_SECRET` | *(empty)* | OIDC client secret |

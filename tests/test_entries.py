@@ -476,7 +476,7 @@ class TestMarkdownPreview:
         })
         assert resp.status_code == 200
         assert (
-            b'<a href="https://cds.cern.ch/record/2967685">'
+            b'<a href="https://cds.cern.ch/record/2967685" rel="noopener noreferrer">'
             b'https://cds.cern.ch/record/2967685</a>' in resp.content
         )
 
@@ -486,8 +486,8 @@ class TestMarkdownPreview:
             'description': 'Visit https://example.com, then https://example.com/other.',
         })
         assert resp.status_code == 200
-        assert b'<a href="https://example.com">https://example.com</a>,' in resp.content
-        assert b'<a href="https://example.com/other">https://example.com/other</a>.' in resp.content
+        assert b'<a href="https://example.com" rel="noopener noreferrer">https://example.com</a>,' in resp.content
+        assert b'<a href="https://example.com/other" rel="noopener noreferrer">https://example.com/other</a>.' in resp.content
 
     def test_autolink_does_not_duplicate_existing_markdown_link(self, client, user):
         client.force_login(user)
@@ -496,7 +496,7 @@ class TestMarkdownPreview:
         })
         assert resp.status_code == 200
         assert resp.content.count(b'<a ') == 1
-        assert b'<a href="https://example.com/already">the paper</a>' in resp.content
+        assert b'<a href="https://example.com/already" rel="noopener noreferrer">the paper</a>' in resp.content
 
 
 # ── Entry description templates ───────────────────────────────────────────────
@@ -634,6 +634,42 @@ class TestEntryManagement:
             username='admin_mgmt', email='admin_mgmt@example.com', password='pass',
             role=User.Role.ADMIN,
         )
+
+    # ── Division-head-only entries are out of reach for group leaders ─────────
+
+    @pytest.fixture
+    def dh_only_entry(self, managed_entry):
+        managed_entry.is_division_head_only = True
+        managed_entry.save(update_fields=['is_division_head_only', 'updated_at'])
+        return managed_entry
+
+    @pytest.mark.parametrize('action', ['archive', 'reassign', 'manager-delete'])
+    def test_group_leader_cannot_act_on_division_head_only_entry(
+        self, client, group_leader, dh_only_entry, user, action
+    ):
+        client.force_login(group_leader)
+        resp = client.post(reverse(f'entries:{action}', kwargs={'pk': dh_only_entry.pk}),
+                           {'author_id': user.pk})
+        assert resp.status_code == 404
+        dh_only_entry.refresh_from_db()
+        assert dh_only_entry.is_archived is False
+        assert dh_only_entry.author_id != user.pk
+
+    @pytest.mark.parametrize('action', ['archive', 'reassign', 'manager-delete'])
+    def test_division_head_can_act_on_division_head_only_entry(
+        self, client, div_head, dh_only_entry, user, action
+    ):
+        client.force_login(div_head)
+        resp = client.post(reverse(f'entries:{action}', kwargs={'pk': dh_only_entry.pk}),
+                           {'author_id': user.pk})
+        assert resp.status_code == 302
+
+    @pytest.mark.parametrize('action', ['archive', 'reassign', 'manager-delete'])
+    def test_unknown_pk_is_404_not_500(self, client, admin, user, action):
+        client.force_login(admin)
+        resp = client.post(reverse(f'entries:{action}', kwargs={'pk': 999999}),
+                           {'author_id': user.pk})
+        assert resp.status_code == 404
 
     # ── EntryManageView (/entries/manage/) ────────────────────────────────────
 

@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import F, Q
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
@@ -243,10 +243,21 @@ class EntryManageView(EntryManagerRequiredMixin, ListView):
         return ctx
 
 
+def _managed_entry_or_404(user, pk):
+    """Resolve an entry for a manager action, honouring the same visibility rule
+    as EntryManageView: only admins and division heads may touch entries flagged
+    division-head-only. Anything else, including an unknown pk, is a 404 rather
+    than a 500 or a silent privilege escalation (GitHub #12)."""
+    qs = WorkItem.objects.all()
+    if not (user.is_scd_admin or user.is_division_head):
+        qs = qs.filter(is_division_head_only=False)
+    return get_object_or_404(qs, pk=pk)
+
+
 class EntryReassignView(EntryManagerRequiredMixin, View):
     def post(self, request, pk):
         from apps.accounts.models import User
-        entry = WorkItem.objects.get(pk=pk)
+        entry = _managed_entry_or_404(request.user, pk)
         new_author_id = request.POST.get('author_id')
         try:
             new_author = User.objects.get(pk=new_author_id)
@@ -262,7 +273,7 @@ class EntryReassignView(EntryManagerRequiredMixin, View):
 
 class EntryArchiveView(EntryManagerRequiredMixin, View):
     def post(self, request, pk):
-        entry = WorkItem.objects.get(pk=pk)
+        entry = _managed_entry_or_404(request.user, pk)
         entry.is_archived = not entry.is_archived
         entry.save(update_fields=['is_archived', 'updated_at'])
         action = 'archived' if entry.is_archived else 'unarchived'
@@ -272,7 +283,7 @@ class EntryArchiveView(EntryManagerRequiredMixin, View):
 
 class EntryManagerDeleteView(EntryManagerRequiredMixin, View):
     def post(self, request, pk):
-        entry = WorkItem.objects.get(pk=pk)
+        entry = _managed_entry_or_404(request.user, pk)
         tag_ids = list(entry.tags.values_list('id', flat=True))
         title = entry.title
         entry.delete()

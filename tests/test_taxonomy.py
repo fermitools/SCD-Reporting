@@ -1,5 +1,10 @@
+import json
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.urls import reverse
 
 from apps.taxonomy.models import Category, EntryType, Project, Tag
 
@@ -164,3 +169,90 @@ def test_tag_autocomplete_empty_query_returns_empty(client, regular_user):
     resp = client.get('/taxonomy/tags/autocomplete/?q=')
     assert resp.status_code == 200
     assert resp.content == b''
+
+
+# ── Taxonomy import (issue #11) ──────────────────────────────────────────────
+
+def _upload(payload, name='taxonomy.json'):
+    raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+    return SimpleUploadedFile(name, raw, content_type='application/json')
+
+
+def _post_import(client, payload):
+    resp = client.post(reverse('taxonomy:import'), {'taxonomy_file': _upload(payload)})
+    msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+    return resp, msgs
+
+
+@pytest.mark.django_db
+def test_import_requires_admin(client, regular_user):
+    client.force_login(regular_user)
+    resp = client.post(reverse('taxonomy:import'), {'taxonomy_file': _upload({'projects': []})})
+    assert resp.status_code in (302, 403)
+    assert Project.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_import_creates_and_updates(client, admin_user):
+    Project.objects.create(name='DUNE', slug='dune', sort_order=5)
+    client.force_login(admin_user)
+    resp, msgs = _post_import(client, {
+        'projects': [
+            {'name': 'DUNE', 'slug': 'dune', 'sort_order': 1},
+            {'name': 'NOvA', 'slug': 'nova', 'short_code': 'NV'},
+        ],
+        'categories': [{'name': 'Ops'}],
+    })
+    assert resp.status_code == 302
+    assert any('projects: 1 created, 1 updated' in m for m in msgs), msgs
+    assert Project.objects.get(slug='dune').sort_order == 1
+    assert Project.objects.get(slug='nova').short_code == 'NV'
+    assert Category.objects.filter(name='Ops').exists()
+
+
+@pytest.mark.django_db
+def test_import_conflict_rolls_back_everything(client, admin_user):
+    """A unique-name collision must abort the whole import, not half of it."""
+    Project.objects.create(name='DUNE', slug='dune')
+    client.force_login(admin_user)
+    resp, msgs = _post_import(client, {
+        'projects': [
+            {'name': 'Zeta', 'slug': 'zeta'},          # valid, would be created first
+            {'name': 'DUNE', 'slug': 'dune-copy'},     # name collides with existing row
+        ],
+    })
+    assert resp.status_code == 302
+    assert any('no changes were made' in m and 'dune-copy' in m for m in msgs), msgs
+    assert not Project.objects.filter(slug='zeta').exists()
+    assert not Project.objects.filter(slug='dune-copy').exists()
+    assert Project.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_import_rejects_malformed_records(client, admin_user):
+    client.force_login(admin_user)
+    resp, msgs = _post_import(client, {'projects': [{'name': 'Ok'}, 'not-an-object']})
+    assert any('no changes were made' in m for m in msgs), msgs
+    assert Project.objects.count() == 0
+
+    resp, msgs = _post_import(client, {'projects': {'name': 'not-a-list'}})
+    assert any('must be a list' in m for m in msgs), msgs
+
+
+@pytest.mark.django_db
+def test_import_rejects_invalid_json(client, admin_user):
+    client.force_login(admin_user)
+    resp, msgs = _post_import(client, b'{not json')
+    assert resp.status_code == 302
+    assert any('Invalid JSON' in m for m in msgs), msgs
+
+
+@pytest.mark.django_db
+def test_import_rejects_oversized_file(client, admin_user, settings):
+    settings.TAXONOMY_IMPORT_MAX_BYTES = 64
+    client.force_login(admin_user)
+    big = {'projects': [{'name': f'P{i}'} for i in range(50)]}
+    resp, msgs = _post_import(client, big)
+    assert resp.status_code == 302
+    assert any('too large' in m for m in msgs), msgs
+    assert Project.objects.count() == 0

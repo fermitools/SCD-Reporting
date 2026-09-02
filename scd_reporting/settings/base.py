@@ -27,6 +27,9 @@ _raw_pem = os.environ.get('GITHUB_APP_PRIVATE_KEY', '')
 GITHUB_APP_PRIVATE_KEY    = _raw_pem.replace('\\n', '\n') if _raw_pem else ''
 GITHUB_TOKEN              = os.environ.get('GITHUB_TOKEN', '')
 
+# Largest taxonomy JSON file the admin import page will read into memory.
+TAXONOMY_IMPORT_MAX_BYTES = int(os.environ.get('TAXONOMY_IMPORT_MAX_BYTES', 5 * 1024 * 1024))
+
 DEBUG = False
 
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost').split(',')]

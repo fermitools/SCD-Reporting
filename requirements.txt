@@ -12,6 +12,7 @@ psycopg2-binary>=2.9.0
 gunicorn>=21.0.0
 dj-database-url>=2.1.0
 markdown>=3.5.0
+nh3>=0.2.15
 anthropic>=0.40.0
 requests>=2.31.0
 PyJWT>=2.8.0
