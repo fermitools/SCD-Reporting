@@ -39,6 +39,17 @@ class WorkItemForm(forms.ModelForm):
         self.fields['group'].required      = False
         self.fields['highlight_stars'].required = False
 
+        # The period inputs are rendered by a shared partial that echoes the value
+        # straight back into <input type="date">. Edit mode seeds these initials
+        # from the instance as date objects while create mode and re-rendered
+        # (bound) forms carry ISO strings, so normalise to ISO strings here and let
+        # the template pass the value through untouched (GitHub #28: piping it
+        # through the |date filter blanked the strings on validation errors).
+        for _name in ('period_start', 'period_end'):
+            _val = self.initial.get(_name)
+            if hasattr(_val, 'isoformat'):
+                self.initial[_name] = _val.isoformat()
+
         # Style the multi-select widgets to match the rest of the form.
         _multi_cls = ('w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm '
                       'focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none')

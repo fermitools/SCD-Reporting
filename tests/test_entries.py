@@ -177,6 +177,31 @@ class TestEntryCreate:
         assert set(entry.projects.values_list('pk', flat=True)) == {project.pk, p2.pk}
         assert set(entry.categories.values_list('pk', flat=True)) == {category.pk, c2.pk}
 
+    def test_get_form_prefills_current_week_dates(self, client, user):
+        client.force_login(user)
+        resp = client.get(reverse('entries:create'))
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        html = resp.content.decode()
+        assert f'name="period_start" id="id_period_start"\n         value="{monday.isoformat()}"' in html
+        assert f'name="period_end" id="id_period_end"\n         value="{(monday + timedelta(days=6)).isoformat()}"' in html
+
+    def test_invalid_post_preserves_submitted_dates(self, client, user, category):
+        """GitHub #28: dates must survive a validation-error re-render like the description does."""
+        client.force_login(user)
+        resp = client.post(reverse('entries:create'), {
+            'title': 'No project selected',
+            'categories': [category.pk],
+            'period_kind': 'week',
+            'period_start': '2026-08-03',
+            'period_end': '2026-08-09',
+            'description': 'kept',
+        })
+        assert resp.status_code == 200          # re-rendered with errors, not redirected
+        html = resp.content.decode()
+        assert 'name="period_start" id="id_period_start"\n         value="2026-08-03"' in html
+        assert 'name="period_end" id="id_period_end"\n         value="2026-08-09"' in html
+
     def test_post_requires_at_least_one_project(self, client, user, project, category):
         client.force_login(user)
         today = date.today()
@@ -343,6 +368,23 @@ class TestEntryEdit:
         assert resp.status_code == 200
         assert entry.period_start.isoformat().encode() in resp.content
         assert entry.period_end.isoformat().encode() in resp.content
+
+    def test_edit_invalid_post_preserves_submitted_dates(self, client, user, entry, project):
+        """GitHub #28 (edit form): submitted dates survive a validation error."""
+        client.force_login(user)
+        resp = client.post(reverse('entries:edit', kwargs={'pk': entry.pk}), {
+            'title': 'Edited',
+            'projects': [project.pk],
+            # categories omitted -> invalid
+            'period_kind': 'week',
+            'period_start': '2026-07-06',
+            'period_end': '2026-07-12',
+            'description': 'kept',
+        })
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'name="period_start" id="id_period_start"\n         value="2026-07-06"' in html
+        assert 'name="period_end" id="id_period_end"\n         value="2026-07-12"' in html
 
     def test_cannot_edit_other_users_entry(self, db, client, entry):
         other = User.objects.create_user(username='other3', email='other3@example.com', password='pass')

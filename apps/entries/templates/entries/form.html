@@ -138,7 +138,7 @@
 
         {# Date inputs – swapped by HTMX when period kind changes #}
         <div id="period-dates" data-prefill-url="{% url 'entries:period-prefill' %}">
-          {% include "entries/partials/_period_inputs.html" with period_start=form.period_start.value|date:"Y-m-d" period_end=form.period_end.value|date:"Y-m-d" %}
+          {% include "entries/partials/_period_inputs.html" with period_start=form.period_start.value|default_if_none:'' period_end=form.period_end.value|default_if_none:'' %}
         </div>
 
         {% for error in form.period_start.errors %}
