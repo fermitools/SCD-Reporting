@@ -3,6 +3,7 @@ from pathlib import Path
 
 import dj_database_url
 
+from scd_reporting import appconfig
 from scd_reporting.vault import load_vault_secrets
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -75,6 +76,7 @@ INSTALLED_APPS = [
     'apps.entries.apps.EntriesConfig',
     'apps.reports.apps.ReportsConfig',
     'apps.audit.apps.AuditConfig',
+    'apps.reminders.apps.RemindersConfig',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -299,6 +301,47 @@ else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@localhost')
+
+# ── Reminders ─────────────────────────────────────────────────────────────────
+# Operational settings for the email reminder subsystem (GitHub #31). Each one
+# resolves as environment variable > config/reminders.yaml > default; the
+# send_reminders management command adds a command-line layer above that.
+_reminders_cfg = appconfig.section('reminders.yaml', 'reminders')
+
+# Absolute base URL used to build the links inside a reminder email. Scheduled
+# sends have no request to derive it from, so it must be configured for them;
+# interactive sends fall back to the current request.
+REMINDER_BASE_URL = appconfig.resolve(
+    _reminders_cfg, 'base_url', 'REMINDER_BASE_URL',
+    f"https://{os.environ.get('SCD_HOSTNAME', '').strip()}" if os.environ.get('SCD_HOSTNAME', '').strip() else '',
+).rstrip('/')
+
+# A recipient reminded within this many hours is skipped. Stops a double-click
+# or two overlapping schedules from mailing the same person twice.
+REMINDER_MIN_INTERVAL_HOURS = appconfig.resolve(
+    _reminders_cfg, 'min_interval_hours', 'REMINDER_MIN_INTERVAL_HOURS', 20, cast=int,
+)
+
+# Default staleness threshold offered in the UI and used by new schedules.
+REMINDER_STALE_DAYS = appconfig.resolve(
+    _reminders_cfg, 'stale_days', 'REMINDER_STALE_DAYS', 14, cast=int,
+)
+
+# Largest number of recipients one send will process.
+REMINDER_BATCH_SIZE = appconfig.resolve(
+    _reminders_cfg, 'batch_size', 'REMINDER_BATCH_SIZE', 200, cast=int,
+)
+
+# In-process scheduler. Off by default: the supported production driver is the
+# Helm CronJob (or system cron) calling `manage.py send_reminders`. Turning this
+# on is safe with several gunicorn workers — due schedules are claimed with an
+# atomic conditional UPDATE — but it ties reminder delivery to web-process uptime.
+REMINDER_SCHEDULER_ENABLED = appconfig.resolve(
+    _reminders_cfg, 'scheduler_enabled', 'REMINDER_SCHEDULER_ENABLED', False, cast=bool,
+)
+REMINDER_SCHEDULER_INTERVAL = appconfig.resolve(
+    _reminders_cfg, 'scheduler_interval', 'REMINDER_SCHEDULER_INTERVAL', 60, cast=int,
+)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 _LOG_DIR = BASE_DIR / 'logs'

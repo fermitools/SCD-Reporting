@@ -1,0 +1,45 @@
+# Email reminder subsystem — operational settings.
+#
+# Copy to config/reminders.yaml and edit. Every key can be overridden by the
+# environment variable named in its comment, and the send_reminders management
+# command's flags override both:
+#
+#     command line  >  environment  >  .env  >  this file  >  built-in default
+#
+# Nothing secret belongs here. SMTP credentials come from Vault or the
+# environment (EMAIL_HOST_PASSWORD); see scd_reporting/vault.py.
+
+reminders:
+  # Absolute site root used to build the links inside a reminder email.
+  # Required for scheduled sends, which have no HTTP request to derive it from.
+  # Falls back to https://$SCD_HOSTNAME when that is set.
+  #   env: REMINDER_BASE_URL
+  base_url: "https://scd-reporting.fnal.gov"
+
+  # A recipient who was reminded within this many hours is skipped. Guards
+  # against a double-click, and against two overlapping schedules covering the
+  # same person. Set to 0 to disable the guard entirely.
+  #   env: REMINDER_MIN_INTERVAL_HOURS
+  min_interval_hours: 20
+
+  # Days without an entry before someone counts as overdue. Used as the default
+  # on the recipients page and for new schedules.
+  #   env: REMINDER_STALE_DAYS
+  stale_days: 14
+
+  # Upper bound on how many recipients one send will process.
+  #   env: REMINDER_BATCH_SIZE
+  batch_size: 200
+
+  # Run the scheduler inside the web process as a daemon thread. Off by default:
+  # the supported production driver is the Helm CronJob (or system cron) calling
+  #   python manage.py send_reminders
+  # Turning this on is safe with several gunicorn workers — due schedules are
+  # claimed with an atomic conditional UPDATE — but it ties reminder delivery to
+  # web-process uptime.
+  #   env: REMINDER_SCHEDULER_ENABLED
+  scheduler_enabled: false
+
+  # Seconds between ticks of that in-process scheduler. Clamped to >= 15.
+  #   env: REMINDER_SCHEDULER_INTERVAL
+  scheduler_interval: 60

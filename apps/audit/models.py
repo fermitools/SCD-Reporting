@@ -10,6 +10,7 @@ class AuditLogEntry(models.Model):
         LOGIN  = 'login',  'Logged in'
         LOGOUT = 'logout', 'Logged out'
         EXPORT = 'export', 'Exported'
+        REMINDER = 'reminder', 'Reminder sent'
 
     actor       = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -1,0 +1,226 @@
+.\" Man page for the send_reminders Django management command
+.\" scd-send-reminders(1)
+.TH SCD\-SEND\-REMINDERS 1 "2026-09-08" "SCD Effort Reporting" "SCD Effort Reporting Commands"
+.SH NAME
+scd\-send\-reminders \- fire due activity-report reminder schedules
+.SH SYNOPSIS
+.B python manage.py send_reminders
+[\fB\-\-list\fR]
+[\fB\-\-dry\-run\fR]
+[\fB\-\-schedule\fR \fIID\fR]
+[\fB\-\-force\fR]
+[\fB\-\-recipient\fR \fIEMAIL\fR]
+[\fB\-\-template\fR \fINAME\fR]
+[\fB\-\-ignore\-interval\fR]
+[\fB\-\-now\fR \fIISO8601\fR]
+.SH DESCRIPTION
+.B send_reminders
+evaluates every enabled reminder schedule, and for each one whose next run time
+has passed, mails an activity-report reminder to the people in the schedule
+owner's scope.
+.PP
+The command is the supported production driver for scheduled reminders. Run it
+from an OKD CronJob (see
+.IR helm/simple/templates/reminder\-cronjob.yaml )
+or from system cron, often enough that a schedule is noticed shortly after it
+comes due. It does not need to run at the moment a reminder should go out: the
+wall-clock rule ("Friday at 15:00 America/Chicago") is stored on the schedule
+itself, so a tick every 15 minutes delivers each reminder at most 15 minutes
+late.
+.PP
+Running it concurrently is safe. Each due schedule is claimed with a single
+atomic conditional UPDATE, so when several web workers, several cron ticks, or a
+cron tick and the optional in-process ticker all decide the same schedule is
+due, exactly one of them sends it. The claim is taken before any mail goes out,
+so a crash mid-batch skips that firing rather than replaying it \(em a missed
+nudge is much cheaper than a duplicated one.
+.PP
+Recipients are resolved from the schedule owner's role every time the schedule
+fires, never frozen at creation time: a group leader reaches their own group, a
+division head the groups they manage, a functional lead the authors of entries
+booked against the projects they lead, and an administrator everyone. Somebody
+who joins a group after the schedule was created is picked up on the next
+firing.
+.SH OPTIONS
+.TP
+.B \-\-list
+Print every schedule with its owner, template, cadence, and next and last run
+times, then exit. Schedules that are currently due are marked
+.BR DUE .
+Sends nothing.
+.TP
+.B \-\-dry\-run
+Report what would be sent without sending mail, writing to the reminder log, or
+advancing any schedule's next run time. Combine with
+.B \-\-schedule
+to rehearse one schedule.
+.TP
+.BI \-\-schedule " ID"
+Act on one schedule only, by the numeric id shown in
+.BR \-\-list .
+Without
+.BR \-\-force ,
+a schedule that is not yet due is reported and skipped.
+.TP
+.B \-\-force
+With
+.BR \-\-schedule ,
+run the schedule even though it is not due. Its next run time is still advanced
+from now, so a forced run does not cause a second delivery at the original slot.
+.TP
+.BI \-\-recipient " EMAIL"
+Send a single reminder to one address and ignore schedules entirely. Useful for
+verifying SMTP and the rendered body against a real mailbox.
+.TP
+.BI \-\-template " NAME"
+Template to use with
+.BR \-\-recipient ,
+by the name shown on the Reminders \(-> Email body page. Defaults to the
+template marked as default.
+.TP
+.B \-\-ignore\-interval
+With
+.BR \-\-recipient ,
+bypass the minimum re-send interval
+.RB ( REMINDER_MIN_INTERVAL_HOURS )
+so a test reminder is not skipped as a duplicate.
+.TP
+.BI \-\-now " ISO8601"
+Treat the given instant as the current time. Intended for testing and for
+catch-up runs after an outage. A naive value is interpreted in the site
+timezone.
+.SH CONFIGURATION
+Settings resolve in the project-wide order \(em command line, then environment,
+then
+.IR .env ,
+then
+.IR config/reminders.yaml ,
+then built-in defaults. See
+.I config/reminders.yaml.example
+for the annotated file.
+.TP
+.B REMINDER_BASE_URL
+Absolute site root used to build the links inside the mail. Required for
+scheduled sends, which have no HTTP request to derive it from; falls back to
+.RI https:// $SCD_HOSTNAME
+when that is set. Without it, a scheduled reminder carries relative links and
+is useless to the recipient.
+.TP
+.B REMINDER_MIN_INTERVAL_HOURS
+A recipient reminded within this many hours is skipped. Default 20. Set to 0 to
+disable the guard.
+.TP
+.B REMINDER_STALE_DAYS
+Days without an entry before somebody counts as overdue. Default 14. Used as
+the default on the recipients page and for new schedules; each schedule stores
+its own threshold.
+.TP
+.B REMINDER_BATCH_SIZE
+Upper bound on the recipients one send will process. Default 200.
+.TP
+.B REMINDER_SCHEDULER_ENABLED
+Set to 1 to run the scheduler as a daemon thread inside the web process instead
+of driving it from cron. Off by default: it is safe with several gunicorn
+workers, but it ties reminder delivery to web-process uptime.
+.TP
+.B REMINDER_SCHEDULER_INTERVAL
+Seconds between ticks of that in-process scheduler. Default 60, clamped to a
+minimum of 15.
+.PP
+SMTP itself is configured by
+.BR EMAIL_HOST ,
+.BR EMAIL_PORT ,
+.BR EMAIL_HOST_USER ,
+.BR EMAIL_HOST_PASSWORD ,
+and
+.BR DEFAULT_FROM_EMAIL .
+With
+.B EMAIL_HOST
+unset, Django's console backend is used and reminders are printed rather than
+delivered \(em which is what the development settings do unconditionally.
+.SH EXIT STATUS
+Returns 0 when the run completed, even if individual deliveries failed; per
+recipient failures are recorded in the reminder log and summarised on stdout.
+Returns non-zero for a usage error, such as an unknown schedule id, an unknown
+recipient address, or an unparsable
+.BR \-\-now .
+.SH EXAMPLES
+Show every schedule and which are due:
+.PP
+.RS
+.nf
+python manage.py send_reminders \-\-list
+.fi
+.RE
+.PP
+Rehearse the whole run without sending anything:
+.PP
+.RS
+.nf
+python manage.py send_reminders \-\-dry\-run
+.fi
+.RE
+.PP
+Normal cron invocation:
+.PP
+.RS
+.nf
+*/15 * * * * cd /app && python manage.py send_reminders >> logs/reminders.log 2>&1
+.fi
+.RE
+.PP
+Send one schedule now, before its slot:
+.PP
+.RS
+.nf
+python manage.py send_reminders \-\-schedule 3 \-\-force
+.fi
+.RE
+.PP
+Check SMTP and the rendered body against your own mailbox:
+.PP
+.RS
+.nf
+python manage.py send_reminders \-\-recipient anorman@fnal.gov \-\-ignore\-interval
+.fi
+.RE
+.PP
+Same, inside the running pod:
+.PP
+.RS
+.nf
+oc \-n scd\-reporting exec deploy/web \-\- \\
+    python manage.py send_reminders \-\-list
+.fi
+.RE
+.SH FILES
+.TP
+.I config/reminders.yaml
+Operational settings; see
+.I config/reminders.yaml.example
+for the annotated template.
+.TP
+.I apps/reminders/scheduling.py
+Firing-time arithmetic and the atomic claim.
+.TP
+.I apps/reminders/service.py
+Rendering, the dedupe window, and delivery.
+.TP
+.I logs/scd_reporting.log
+Where send attempts and SMTP errors are logged.
+.SH SEE ALSO
+.BR scd-vault-check (1),
+.BR start-scd-reporting (1),
+.BR restart-pod (1)
+.PP
+Reminders are managed from the web UI at
+.IR /reminders/ :
+recipients and ad-hoc sends at the top level,
+.I /reminders/templates/
+for the editable body,
+.I /reminders/schedules/
+for recurring sends, and
+.I /reminders/log/
+for the delivery history.
+.SH AUTHOR
+Fermilab Scientific Computing Division.

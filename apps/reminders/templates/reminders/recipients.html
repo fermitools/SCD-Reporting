@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Reminders — SCD Reporting{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Report Reminders</h1>
+      <p class="text-sm text-slate-500 mt-1">{{ scope_description }}</p>
+    </div>
+    <div class="flex gap-3 text-sm">
+      <a href="{% url 'reminders:templates' %}" class="text-scd-primary hover:underline">Email body</a>
+      <a href="{% url 'reminders:schedules' %}" class="text-scd-primary hover:underline">Schedules</a>
+      <a href="{% url 'reminders:log' %}" class="text-scd-primary hover:underline">Send log</a>
+    </div>
+  </div>
+
+  {% if not base_url_configured %}
+  <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-md px-4 py-3 text-sm">
+    <strong>REMINDER_BASE_URL is not set.</strong> Links in interactive reminders will be built
+    from the current request, but scheduled reminders have no request to use and will contain
+    relative links. Set <code>REMINDER_BASE_URL</code> (or <code>SCD_HOSTNAME</code>) before
+    enabling a schedule.
+  </div>
+  {% endif %}
+
+  {# ── Filters ─────────────────────────────────────────────────────────────── #}
+  <form method="get" class="bg-white rounded-lg border border-slate-200 shadow-sm px-5 py-4 flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Name or email</label>
+      <input type="text" name="q" value="{{ request.GET.q }}" placeholder="partial match…"
+             class="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Group</label>
+      <select name="group"
+              class="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+        <option value="">All groups</option>
+        {% for g in groups %}
+        <option value="{{ g.pk }}" {% if request.GET.group == g.pk|stringformat:"s" %}selected{% endif %}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Project</label>
+      <select name="project"
+              class="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+        <option value="">All projects</option>
+        {% for p in projects %}
+        <option value="{{ p.pk }}" {% if request.GET.project == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Stale after (days)</label>
+      <input type="number" name="stale_days" min="0" max="365" value="{{ stale_days }}"
+             class="w-28 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+    </div>
+    <div class="flex items-center gap-2 self-end pb-1">
+      <input type="checkbox" name="stale" value="1" id="id_stale" {% if stale_only %}checked{% endif %}
+             class="rounded border-slate-300 text-scd-primary focus:ring-scd-primary">
+      <label for="id_stale" class="text-sm text-slate-600">Only people who are overdue</label>
+    </div>
+    <button type="submit"
+            class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-md transition-colors self-end">
+      Filter
+    </button>
+    <a href="{% url 'reminders:recipients' %}" class="text-sm text-slate-500 hover:underline self-end pb-1">Reset</a>
+  </form>
+
+  <div class="flex flex-wrap items-center gap-4 text-sm text-slate-500">
+    <span><strong class="text-slate-700">{{ total }}</strong> in scope</span>
+    <span><strong class="text-amber-600">{{ stale_count }}</strong> with no entry in the last {{ stale_days }} day{{ stale_days|pluralize }}</span>
+  </div>
+
+  {% if rows %}
+  <form method="post" action="{% url 'reminders:send' %}" id="send-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input type="hidden" name="stale_days" value="{{ stale_days }}">
+
+    {# ── Send controls ────────────────────────────────────────────────────── #}
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-5 py-4 mb-4 flex flex-wrap items-end gap-4">
+      <div>
+        <label for="template-select" class="block text-xs font-medium text-slate-500 mb-1">Email body</label>
+        <select name="template" id="template-select"
+                class="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          {% for t in templates %}
+          <option value="{{ t.pk }}" {% if t.is_default %}selected{% endif %}>
+            {{ t.name }}{% if t.is_default %} (default){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" name="mode" value="selected"
+              class="bg-scd-primary hover:bg-scd-primary-hover text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
+        Send to selected (<span id="selected-count">0</span>)
+      </button>
+      <button type="submit" name="mode" value="stale"
+              onclick="return confirm('Send a reminder to everyone in scope with no entry in the last {{ stale_days }} days?')"
+              class="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
+        Send to all {{ stale_count }} overdue
+      </button>
+      <button type="submit" name="mode" value="all"
+              onclick="return confirm('Send a reminder to all {{ total }} people in your scope?')"
+              class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-md transition-colors">
+        Send to everyone in scope
+      </button>
+
+      <label class="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-600 ml-auto">
+        <input type="checkbox" name="ignore_interval" value="1"
+               class="h-4 w-4 rounded border-slate-300 text-scd-primary focus:ring-scd-primary">
+        Ignore the {{ min_interval_hours }}h re-send guard
+      </label>
+    </div>
+
+    {# ── Recipients ───────────────────────────────────────────────────────── #}
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
+      <table class="min-w-full divide-y divide-slate-200 text-sm">
+        <thead class="bg-slate-50">
+          <tr>
+            <th class="px-4 py-3 text-left">
+              <input type="checkbox" id="check-all" title="Select all on this page"
+                     class="rounded border-slate-300 text-scd-primary focus:ring-scd-primary">
+            </th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-600">Person</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden md:table-cell">Group</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-600">Last entry</th>
+            <th class="px-4 py-3 text-right font-semibold text-slate-600 hidden sm:table-cell">Entries</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden lg:table-cell">Last reminded</th>
+            <th class="px-4 py-3 text-right font-semibold text-slate-600">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for row in rows %}
+          <tr class="hover:bg-slate-50">
+            <td class="px-4 py-3">
+              <input type="checkbox" name="recipient_ids" value="{{ row.user.pk }}"
+                     class="recipient-check rounded border-slate-300 text-scd-primary focus:ring-scd-primary">
+            </td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-800">{{ row.user.display_name|default:row.user.email }}</div>
+              <div class="text-xs text-slate-400">{{ row.user.email }}</div>
+            </td>
+            <td class="px-4 py-3 text-slate-600 hidden md:table-cell">
+              {{ row.user.group.name|default:"—" }}
+            </td>
+            <td class="px-4 py-3">
+              {% if row.last_entry %}
+              <div class="tabular-nums {% if row.stale %}text-amber-600 font-medium{% else %}text-slate-600{% endif %}">
+                {{ row.last_entry_at|date:"Y-m-d" }}
+                <span class="text-xs text-slate-400">({{ row.days_since }}d ago)</span>
+              </div>
+              <div class="text-xs text-slate-400 truncate max-w-[22rem]">{{ row.last_entry.title }}</div>
+              {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                No entries
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-right text-slate-500 tabular-nums hidden sm:table-cell">{{ row.entry_count }}</td>
+            <td class="px-4 py-3 text-xs text-slate-400 hidden lg:table-cell">
+              {% if row.last_reminder %}{{ row.last_reminder.created_at|date:"Y-m-d H:i" }}{% else %}never{% endif %}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <button type="submit" name="mode" value="selected"
+                      onclick="selectOnly('{{ row.user.pk }}')"
+                      class="text-sm text-scd-primary hover:underline">Send</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+
+  {% if is_paginated %}
+  <div class="flex justify-center gap-2 text-sm">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}&q={{ request.GET.q }}&group={{ request.GET.group }}&project={{ request.GET.project }}&stale_days={{ stale_days }}{% if stale_only %}&stale=1{% endif %}"
+       class="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50">← Previous</a>
+    {% endif %}
+    <span class="px-3 py-1 text-slate-500">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}&q={{ request.GET.q }}&group={{ request.GET.group }}&project={{ request.GET.project }}&stale_days={{ stale_days }}{% if stale_only %}&stale=1{% endif %}"
+       class="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-12 text-center">
+    <p class="text-slate-400">Nobody matches the current filters.</p>
+    <p class="text-slate-400 text-sm mt-2">{{ scope_description }}</p>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+(function () {
+  var checks = document.querySelectorAll('.recipient-check');
+  var counter = document.getElementById('selected-count');
+  var all = document.getElementById('check-all');
+  if (!counter) { return; }
+
+  function refresh() {
+    var n = 0;
+    checks.forEach(function (c) { if (c.checked) { n += 1; } });
+    counter.textContent = n;
+  }
+  checks.forEach(function (c) { c.addEventListener('change', refresh); });
+  if (all) {
+    all.addEventListener('change', function () {
+      checks.forEach(function (c) { c.checked = all.checked; });
+      refresh();
+    });
+  }
+  refresh();
+
+  // Per-row Send: clear the page selection and tick just this person, so the
+  // row button and the bulk button can share one form and one POST handler.
+  window.selectOnly = function (pk) {
+    checks.forEach(function (c) { c.checked = (c.value === pk); });
+    refresh();
+    return true;
+  };
+})();
+</script>
+{% endblock %}

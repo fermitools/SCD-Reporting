@@ -1,0 +1,79 @@
+{{- if .Values.reminders.cronjob.enabled }}
+{{- /*
+Fires due reminder schedules. This is the supported production driver: the
+in-process ticker (REMINDER_SCHEDULER_ENABLED) ties reminder delivery to
+web-process uptime, and a CronJob does not.
+
+The job only *evaluates* schedules — the wall-clock rule ("Friday at 15:00
+America/Chicago") lives in the ReminderSchedule row, so this cron expression
+just needs to tick often enough to notice a schedule has come due. Every 15
+minutes means a reminder goes out at most 15 minutes late.
+
+Safe to run alongside the web pods: each due schedule is claimed with an
+atomic conditional UPDATE, so only one process ever sends it.
+
+With SQLite the web Deployment holds the database on a RWO PVC, so this job
+must land on the same node to open it. Set reminders.cronjob.mountData=false
+when the database is Postgres.
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-reminders
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "scd-reporting-simple.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.reminders.cronjob.schedule | quote }}
+  timeZone: {{ .Values.reminders.cronjob.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.reminders.cronjob.successHistory }}
+  failedJobsHistoryLimit: {{ .Values.reminders.cronjob.failureHistory }}
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.reminders.cronjob.deadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "scd-reporting-simple.selectorLabels" . | nindent 12 }}
+            job: reminders
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: send-reminders
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - python
+                - manage.py
+                - send_reminders
+              resources:
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+              envFrom:
+                - configMapRef:
+                    name: {{ .Release.Name }}-config
+                - secretRef:
+                    name: {{ .Release.Name }}-secret
+              env:
+                # The ticker belongs to the web process, never to this job.
+                - name: REMINDER_SCHEDULER_ENABLED
+                  value: "0"
+              {{- if .Values.reminders.cronjob.mountData }}
+              volumeMounts:
+                - mountPath: /app/data
+                  name: sqlite-data
+              {{- end }}
+          {{- if .Values.reminders.cronjob.mountData }}
+          volumes:
+            - name: sqlite-data
+              persistentVolumeClaim:
+                claimName: {{ .Release.Name }}-sqlite-data
+          {{- end }}
+{{- end }}

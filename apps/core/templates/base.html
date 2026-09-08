@@ -74,6 +74,11 @@
             {% if user.is_scd_admin or user.is_division_head or user.is_group_leader %}
             <a href="{% url 'admin-users' %}" class="opacity-90 hover:opacity-100 hover:underline">Users</a>
             {% endif %}
+            {% if user.is_scd_admin or user.is_division_head or user.is_group_leader or user.is_functional_lead %}
+            {% url 'reminders:recipients' as reminders_url %}{% if reminders_url %}
+            <a href="{{ reminders_url }}" class="opacity-90 hover:opacity-100 hover:underline">Reminders</a>
+            {% endif %}
+            {% endif %}
             {% if user.is_scd_admin or user.is_group_leader or user.is_division_head %}
             {% url 'taxonomy:projects' as tax_url %}{% if tax_url %}
             <a href="{{ tax_url }}" class="opacity-90 hover:opacity-100 hover:underline">Taxonomy</a>

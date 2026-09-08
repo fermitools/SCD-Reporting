@@ -29,6 +29,7 @@
           <tr><td class="py-1.5 pr-4"><span class="badge badge-login">Login</span></td><td>Any authenticated user</td></tr>
           <tr><td class="py-1.5 pr-4"><span class="badge badge-manager">Manager</span></td><td>Admin, Division Head, or Group Leader</td></tr>
           <tr><td class="py-1.5 pr-4"><span class="badge badge-reporter">Reporter</span></td><td>Auditor, Group Leader, Division Head, or Functional Lead</td></tr>
+          <tr><td class="py-1.5 pr-4"><span class="badge badge-lead">Lead</span></td><td>Functional Lead, Group Leader, Division Head, or Admin — not Auditor, which is read-only</td></tr>
           <tr><td class="py-1.5 pr-4"><span class="badge badge-admin">Admin</span></td><td>SCD Admin only</td></tr>
           <tr><td class="py-1.5 pr-4"><span class="badge badge-public">Public</span></td><td>No authentication required</td></tr>
         </tbody>
@@ -306,6 +307,34 @@ curl -s -X POST https://scd-reporting.fnal.gov/api/entries/ \
     </div>
   </div>
 
+  {% comment %}— Reminders ——————————————————————————————————{% endcomment %}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-3 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">Reminders</h2>
+    </div>
+    <div class="divide-y divide-slate-100 text-sm">
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/"                            badge="lead" desc="People in your scope with last-entry date, days since, and last reminded" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/send/"                        badge="lead" desc="Send reminders — to selected people, to everyone overdue, or to the whole scope" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/templates/"                   badge="lead" desc="List the editable email bodies" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/templates/new/"               badge="lead" desc="New email body form" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/templates/new/"               badge="lead" desc="Create an email body" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/templates/&lt;id&gt;/edit/"   badge="lead" desc="Edit email body form" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/templates/&lt;id&gt;/edit/"   badge="lead" desc="Save the email subject and Markdown body" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/templates/&lt;id&gt;/default/" badge="lead" desc="Make this body the default used when none is chosen" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/templates/&lt;id&gt;/delete/" badge="lead" desc="Delete an email body (refused while a schedule uses it)" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/templates/preview/"           badge="lead" desc="HTMX: render the body with placeholders filled in from your own account" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/schedules/"                   badge="lead" desc="Recurring sends — your own, or all of them for an admin" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/schedules/new/"               badge="lead" desc="New schedule form" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/schedules/new/"               badge="lead" desc="Create a schedule (weekly, biweekly, or monthly at a local wall-clock time)" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/schedules/&lt;id&gt;/edit/"   badge="lead" desc="Edit schedule form (owner or admin)" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/schedules/&lt;id&gt;/edit/"   badge="lead" desc="Save a schedule; a changed timing rule re-arms the next run" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/schedules/&lt;id&gt;/toggle/" badge="lead" desc="Enable or disable a schedule; enabling re-arms it from now" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/schedules/&lt;id&gt;/run/"    badge="lead" desc="Run a schedule now, or dry-run it with dry_run=1" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/reminders/schedules/&lt;id&gt;/delete/" badge="lead" desc="Delete a schedule" %}
+      {% include "core/partials/_route_row.html" with method="GET"  path="/reminders/log/"                         badge="lead" desc="Delivery history with skip and failure reasons, scoped to you" %}
+    </div>
+  </div>
+
   {% comment %}— System ——————————————————————————————————{% endcomment %}
   <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
     <div class="px-6 py-3 bg-slate-50 border-b border-slate-200">
@@ -334,6 +363,7 @@ curl -s -X POST https://scd-reporting.fnal.gov/api/entries/ \
   .badge-login    { background: #dbeafe; color: #1e40af; }
   .badge-manager  { background: #fef3c7; color: #92400e; }
   .badge-reporter { background: #d1fae5; color: #065f46; }
+  .badge-lead     { background: #ede9fe; color: #5b21b6; }
   .badge-admin    { background: #fee2e2; color: #991b1b; }
   .badge-public   { background: #f1f5f9; color: #475569; }
   .method-get  { font-family: monospace; font-size: 0.7rem; font-weight: 700; color: #1d4ed8; background: #dbeafe; padding: 0.15rem 0.4rem; border-radius: 3px; white-space: nowrap; }

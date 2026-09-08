@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Reminder Schedules — SCD Reporting{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Reminder Schedules</h1>
+      <p class="text-sm text-slate-500 mt-1">
+        Recurring sends. Recipients are resolved from the owner's scope each time one fires.
+      </p>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <a href="{% url 'reminders:recipients' %}" class="text-scd-primary hover:underline">Recipients</a>
+      <a href="{% url 'reminders:templates' %}" class="text-scd-primary hover:underline">Email body</a>
+      <a href="{% url 'reminders:schedule-create' %}"
+         class="bg-scd-primary hover:bg-scd-primary-hover text-white font-medium px-4 py-2 rounded-md transition-colors">
+        New schedule
+      </a>
+    </div>
+  </div>
+
+  {% if not base_url_configured %}
+  <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-md px-4 py-3 text-sm">
+    <strong>REMINDER_BASE_URL is not set.</strong> A scheduled send has no HTTP request to derive
+    the site address from, so links in the mail will be relative and unusable. Set
+    <code>REMINDER_BASE_URL</code> (or <code>SCD_HOSTNAME</code>) before relying on a schedule.
+  </div>
+  {% endif %}
+
+  <div class="bg-slate-50 border border-slate-200 rounded-md px-4 py-3 text-sm text-slate-600">
+    {% if scheduler_enabled %}
+    The in-process scheduler is <strong class="text-green-700">on</strong> — schedules fire from
+    the web process itself.
+    {% else %}
+    The in-process scheduler is <strong>off</strong>. Schedules fire when
+    <code>manage.py send_reminders</code> runs — from the Helm CronJob, or from system cron.
+    Set <code>REMINDER_SCHEDULER_ENABLED=1</code> to run the ticker inside the web process instead.
+    {% endif %}
+  </div>
+
+  {% if schedules %}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
+    <table class="min-w-full divide-y divide-slate-200 text-sm">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Schedule</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">When</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden lg:table-cell">Owner / scope</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Next run (UTC)</th>
+          <th class="px-4 py-3 text-right font-semibold text-slate-600">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for s in schedules %}
+        <tr class="hover:bg-slate-50 {% if not s.is_enabled %}opacity-60{% endif %}">
+          <td class="px-4 py-3">
+            <a href="{% url 'reminders:schedule-edit' s.pk %}"
+               class="font-medium text-slate-800 hover:text-scd-primary">{{ s.name }}</a>
+            <div class="text-xs text-slate-400">
+              {{ s.template.name }}{% if s.only_stale %} · overdue only ({{ s.stale_days }}d){% else %} · everyone in scope{% endif %}
+            </div>
+          </td>
+          <td class="px-4 py-3 text-slate-600">{{ s.cadence_display }}</td>
+          <td class="px-4 py-3 text-slate-600 text-xs hidden lg:table-cell">
+            {{ s.owner.display_name|default:s.owner.email }}<br>
+            <span class="text-slate-400">{{ s.owner.get_role_display }}</span>
+          </td>
+          <td class="px-4 py-3 tabular-nums text-xs">
+            {% if s.is_enabled %}
+            <span class="text-slate-600">{{ s.next_run_at|date:"Y-m-d H:i" }}</span>
+            {% else %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">Disabled</span>
+            {% endif %}
+            {% if s.last_run_at %}<div class="text-slate-400">last {{ s.last_run_at|date:"Y-m-d H:i" }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            <div class="flex justify-end gap-3 flex-wrap">
+              <form method="post" action="{% url 'reminders:schedule-run' s.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="dry_run" value="1">
+                <button type="submit" class="text-sm text-slate-500 hover:underline">Dry run</button>
+              </form>
+              <form method="post" action="{% url 'reminders:schedule-run' s.pk %}"
+                    onsubmit="return confirm('Send this schedule now, to everyone it matches?')">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-scd-primary hover:underline">Run now</button>
+              </form>
+              <form method="post" action="{% url 'reminders:schedule-toggle' s.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="text-sm {% if s.is_enabled %}text-amber-600{% else %}text-green-600{% endif %} hover:underline">
+                  {% if s.is_enabled %}Disable{% else %}Enable{% endif %}
+                </button>
+              </form>
+              <form method="post" action="{% url 'reminders:schedule-delete' s.pk %}"
+                    onsubmit="return confirm('Delete this schedule? This cannot be undone.')">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-red-500 hover:underline">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-12 text-center">
+    <p class="text-slate-400">No schedules yet.</p>
+    <a href="{% url 'reminders:schedule-create' %}" class="text-sm text-scd-primary hover:underline mt-2 inline-block">
+      Create one — for example every Friday at 15:00.
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

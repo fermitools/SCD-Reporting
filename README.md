@@ -17,6 +17,7 @@ The application is designed to work in the Fermilab security environment and wit
 - [Running Tests](#running-tests)
 - [Docker Deployment](#docker-deployment)
 - [User Roles](#user-roles)
+- [Email Reminders](#email-reminders)
 - [URL Reference](#url-reference)
 - [Environment Variables](#environment-variables)
 - [API](#api)
@@ -31,6 +32,7 @@ The application is designed to work in the Fermilab security environment and wit
 - **Role-based access** — six roles (User, Group Leader, Division Head, Functional Lead, Auditor, Administrator) with enforced permission checks throughout; group leaders and division heads see reports scoped to their managed groups
 - **Reports** — admins, auditors, group leaders, division heads, and functional leads filter entries by author, project, category, and date range; preview results with per-row checkboxes to select a subset; download as plain text, CSV, JSON, XLSX, or PDF; report scope is automatically restricted to managed groups/projects for non-admin roles
 - **AI Summary** — generate a structured narrative summary of any filtered or selected entries via the Anthropic API; download as plain text or PDF; system prompt and user template are editable from the web UI by admins
+- **Email reminders** — functional leads and above see the people in their scope with the date of each person's last entry, and can mail an activity-report reminder to individuals, to everyone who is overdue, or to the whole scope; the email body is edited in the web UI with `{{placeholder}}` tokens and a live preview, and recurring sends (for example every Friday at 15:00) are configured per lead. Delivery is driven by an OKD CronJob calling `manage.py send_reminders`, is safe to run concurrently, and every attempt is recorded
 - **Audit log** — WorkItem create/update/delete/reassign/archive events, login/logout events, and report exports (including AI summaries) are recorded with actor, IP address, user-agent, and field-level diffs
 - **Taxonomy management** — projects, categories, and organisational groups are managed through a tabbed web UI (Admin role required)
 - **User management** — administrators can create accounts, assign roles, reset passwords, and delete users; group leaders and division heads see only their own group's members
@@ -50,7 +52,8 @@ apps/
 ├── taxonomy/    Project, Category, WorkGroup, LabPriority, Tag models; autocomplete
 ├── entries/     WorkItem CRUD, archive/unarchive, manager reassignment, REST API
 ├── reports/     Filter form, five exporters, row selection, AI summary, HTMX preview
-└── audit/       AuditLogEntry model, log_event service, signals, middleware, viewer
+├── audit/       AuditLogEntry model, log_event service, signals, middleware, viewer
+└── reminders/   Reminder templates, schedules, scoped recipient page, delivery, send log
 ```
 
 Each app is independently namespaced and has its own URLs, templates, and tests.
@@ -219,13 +222,119 @@ See `./scripts/deploy.sh --help` for all flags.
 | Role | Description | Key Permissions |
 |---|---|---|
 | **User** | Regular SCD staff | Submit and manage their own entries; view their own dashboard |
-| **Group Leader** | Team lead | All User permissions + view/manage entries for their group; run reports scoped to their group; view audit log; view and assign users within their group |
+| **Group Leader** | Team lead | All User permissions + view/manage entries for their group; run reports scoped to their group; send report reminders to their group; view audit log; view and assign users within their group |
 | **Division Head** | Division manager | All Group Leader permissions + scope spans all managed groups |
-| **Functional Lead** | Project/function lead | All User permissions + run reports scoped to their managed projects; view entry details |
-| **Auditor** | Read-only oversight | View all non-restricted entries; run reports; generate AI summaries; view audit log — no write access |
+| **Functional Lead** | Project/function lead | All User permissions + run reports scoped to their managed projects; view entry details; send report reminders to people who booked effort against their projects |
+| **Auditor** | Read-only oversight | View all non-restricted entries; run reports; generate AI summaries; view audit log — no write access, and no reminder sending |
 | **Administrator** | Full access | All permissions + manage taxonomy, manage all user accounts and roles, view all API tokens, configure AI prompts |
 
 Role assignment is done via the Admin Users page (`/admin-users/`) by an Administrator.
+
+---
+
+## Email Reminders
+
+Reminders nudge people to file an activity report. They carry a boiler-plate
+body, a link back to the reporting interface, and the date and title of the
+recipient's most recent entry — or a note that there is none on record.
+
+### Who can send, and to whom
+
+Recipients are resolved from the sender's role every time, using the same
+scoping rules as reports:
+
+| Role | Reminder scope |
+|---|---|
+| Administrator | Every active user with an email address |
+| Division Head | Users whose primary group is one they manage |
+| Group Leader | Users in their own primary group |
+| Functional Lead | Authors of entries booked against a project they lead |
+| Auditor | *none* — read-only role, so it cannot send |
+| User | *none* |
+
+A recipient id posted for somebody outside the sender's scope is filtered out
+rather than rejected, so the scope is enforced by the query, not by the form.
+
+### Pages
+
+| Path | Purpose |
+|---|---|
+| `/reminders/` | People in scope, with last-entry date, days since, entry count, and last reminded; send to selected, to everyone overdue, or to the whole scope |
+| `/reminders/templates/` | Edit the email subject and body; Markdown with `{{placeholder}}` tokens and a live preview |
+| `/reminders/schedules/` | Recurring sends — weekly, biweekly, or monthly, at a wall-clock time in a named timezone; enable/disable, dry run, run now |
+| `/reminders/log/` | Every attempt, with the skip or failure reason |
+
+### Placeholders
+
+`{{recipient_name}}`, `{{recipient_email}}`, `{{recipient_group}}`,
+`{{last_entry_date}}`, `{{last_entry_title}}`, `{{last_entry_summary}}`,
+`{{days_since_last_entry}}`, `{{entry_count}}`, `{{report_url}}`,
+`{{new_entry_url}}`, `{{my_entries_url}}`, `{{sender_name}}`, `{{today}}`.
+
+Substitution is a plain token replacement, not a Django template render — the
+body is operator-supplied text and must not be able to execute anything. An
+unrecognised token is left in place, so a typo shows up in the preview rather
+than silently blanking a line. The HTML alternative goes through the same
+nh3 sanitiser as entry descriptions.
+
+### How scheduled sends actually fire
+
+The schedule row stores the wall-clock rule; a driver process periodically asks
+"what is due?". Three drivers, one code path:
+
+```bash
+# 1. OKD CronJob — the supported production driver (helm/simple, on by default)
+#    reminders.cronjob.schedule: "*/15 * * * *"
+
+# 2. System cron
+*/15 * * * * cd /app && python manage.py send_reminders >> logs/reminders.log 2>&1
+
+# 3. In-process daemon thread, for deployments with nowhere to run cron
+REMINDER_SCHEDULER_ENABLED=1
+```
+
+Running these concurrently is safe. Each due schedule is claimed with a single
+atomic conditional `UPDATE ... WHERE next_run_at <= now`, which is atomic on
+both SQLite and PostgreSQL, so exactly one of three gunicorn workers plus a
+cron tick ends up sending it. The claim is taken before any mail leaves, so a
+crash mid-batch skips that firing rather than replaying it — a missed nudge
+costs much less than a duplicate.
+
+Two further guards against over-mailing: a recipient reminded within
+`REMINDER_MIN_INTERVAL_HOURS` (default 20) is skipped, and a schedule with
+"only remind people who are overdue" set skips anyone with an entry inside its
+staleness window.
+
+`REMINDER_BASE_URL` must be set for scheduled sends. A scheduled run has no
+HTTP request to derive the site address from, so without it the links in the
+mail come out relative and useless; the Helm chart derives it from
+`route.hostname` automatically. The reminder pages show a warning banner when
+it is unset.
+
+### Operating it
+
+```bash
+# What exists, and what is due right now
+python manage.py send_reminders --list
+
+# Rehearse everything without sending, logging, or advancing any schedule
+python manage.py send_reminders --dry-run
+
+# Force one schedule ahead of its slot
+python manage.py send_reminders --schedule 3 --force
+
+# Check SMTP and the rendered body against a real mailbox
+python manage.py send_reminders --recipient you@fnal.gov --ignore-interval
+
+# Inside the running pod
+oc -n scd-reporting exec deploy/web -- python manage.py send_reminders --list
+```
+
+Full option reference: `man docs/man/scd-send-reminders.1`.
+
+Settings live in `config/reminders.yaml` (copy `config/reminders.yaml.example`)
+and are overridden by environment variables, which are in turn overridden by
+the command-line flags above.
 
 ---
 
@@ -269,6 +378,26 @@ Role assignment is done via the Admin Users page (`/admin-users/`) by an Adminis
 | `/reports/summary/download/txt/` | Download AI summary as plain text | Auditor+ |
 | `/reports/summary/download/pdf/` | Download AI summary as PDF | Auditor+ |
 | `/reports/prompt-config/` | Save AI prompt configuration (POST) | Admin |
+
+### Reminders
+
+| Path | Description | Access |
+|---|---|---|
+| `/reminders/` | People in scope with reporting freshness | Functional Lead+ |
+| `/reminders/send/` | Send reminders (POST) | Functional Lead+ |
+| `/reminders/templates/` | List email bodies | Functional Lead+ |
+| `/reminders/templates/new/` | Create an email body | Functional Lead+ |
+| `/reminders/templates/<pk>/edit/` | Edit an email body | Functional Lead+ |
+| `/reminders/templates/<pk>/default/` | Make it the default (POST) | Functional Lead+ |
+| `/reminders/templates/<pk>/delete/` | Delete an email body (POST) | Functional Lead+ |
+| `/reminders/templates/preview/` | HTMX body preview (POST) | Functional Lead+ |
+| `/reminders/schedules/` | Recurring sends | Functional Lead+ (own), Admin (all) |
+| `/reminders/schedules/new/` | Create a schedule | Functional Lead+ |
+| `/reminders/schedules/<pk>/edit/` | Edit a schedule | Owner / Admin |
+| `/reminders/schedules/<pk>/toggle/` | Enable or disable (POST) | Owner / Admin |
+| `/reminders/schedules/<pk>/run/` | Run now, or dry run (POST) | Owner / Admin |
+| `/reminders/schedules/<pk>/delete/` | Delete a schedule (POST) | Owner / Admin |
+| `/reminders/log/` | Delivery history, scoped | Functional Lead+ |
 
 ### Admin
 
@@ -325,6 +454,13 @@ Role assignment is done via the Admin Users page (`/admin-users/`) by an Adminis
 | `GITHUB_APP_PRIVATE_KEY` | *(empty)* | GitHub App PEM private key (use `\n` for newlines) |
 | `GITHUB_TOKEN` | *(empty)* | PAT fallback if App credentials are not set |
 | `TAXONOMY_IMPORT_MAX_BYTES` | `5242880` | Size limit (bytes) for the admin taxonomy JSON import |
+| `REMINDER_BASE_URL` | *(from `SCD_HOSTNAME`)* | Absolute site root for links inside reminder emails; required for scheduled sends |
+| `REMINDER_MIN_INTERVAL_HOURS` | `20` | Skip a recipient reminded within this many hours; `0` disables the guard |
+| `REMINDER_STALE_DAYS` | `14` | Days without an entry before somebody counts as overdue |
+| `REMINDER_BATCH_SIZE` | `200` | Upper bound on recipients per send |
+| `REMINDER_SCHEDULER_ENABLED` | `0` | `1` runs the scheduler in-process instead of from cron |
+| `REMINDER_SCHEDULER_INTERVAL` | `60` | Seconds between in-process scheduler ticks (min 15) |
+| `SCD_CONFIG_DIR` | `config/` | Directory holding the YAML configuration files |
 | `OIDC_OP_DISCOVERY_ENDPOINT` | *(empty)* | OIDC provider discovery URL; enables SSO button when set |
 | `OIDC_RP_CLIENT_ID` | *(empty)* | OIDC client ID |
 | `OIDC_RP_CLIENT_SECRET` | *(empty)* | OIDC client secret |
@@ -383,3 +519,16 @@ python manage.py seed_taxonomy
 ```
 
 Additional projects, categories, and organisational groups can be created through the web interface at `/taxonomy/` (Admin role required).
+
+### `send_reminders`
+
+Fires every reminder schedule that has come due. Safe to run concurrently with
+the web pods and with itself — due schedules are claimed atomically.
+
+```bash
+python manage.py send_reminders             # normal cron invocation
+python manage.py send_reminders --list      # what exists, and what is due
+python manage.py send_reminders --dry-run   # rehearse, change nothing
+```
+
+See [Email Reminders](#email-reminders) and `docs/man/scd-send-reminders.1`.

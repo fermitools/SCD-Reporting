@@ -12,6 +12,7 @@ urlpatterns = [
     path('entries/',  include('apps.entries.urls',  namespace='entries')),
     path('reports/',  include('apps.reports.urls',  namespace='reports')),
     path('audit/',    include('apps.audit.urls',    namespace='audit')),
+    path('reminders/', include('apps.reminders.urls', namespace='reminders')),
 ]
 
 if settings.DEBUG:

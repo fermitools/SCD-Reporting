@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Reminder Email Body — SCD Reporting{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Reminder Email Body</h1>
+      <p class="text-sm text-slate-500 mt-1">
+        The boiler plate sent to people who owe an activity report.
+      </p>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <a href="{% url 'reminders:recipients' %}" class="text-scd-primary hover:underline">Recipients</a>
+      <a href="{% url 'reminders:schedules' %}" class="text-scd-primary hover:underline">Schedules</a>
+      <a href="{% url 'reminders:template-create' %}"
+         class="bg-scd-primary hover:bg-scd-primary-hover text-white font-medium px-4 py-2 rounded-md transition-colors">
+        New body
+      </a>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
+    <table class="min-w-full divide-y divide-slate-200 text-sm">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Name</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Subject</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden lg:table-cell">Last edited</th>
+          <th class="px-4 py-3 text-right font-semibold text-slate-600">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for t in templates %}
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3">
+            <a href="{% url 'reminders:template-edit' t.pk %}"
+               class="font-medium text-slate-800 hover:text-scd-primary">{{ t.name }}</a>
+            {% if t.is_default %}
+            <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-scd-accent-soft text-scd-primary">
+              default
+            </span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-slate-600">{{ t.subject }}</td>
+          <td class="px-4 py-3 text-xs text-slate-400 hidden lg:table-cell">
+            {{ t.updated_at|date:"Y-m-d H:i" }}{% if t.updated_by %} by {{ t.updated_by.display_name|default:t.updated_by.email }}{% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            <div class="flex justify-end gap-3 flex-wrap">
+              <a href="{% url 'reminders:template-edit' t.pk %}" class="text-sm text-scd-primary hover:underline">Edit</a>
+              {% if not t.is_default %}
+              <form method="post" action="{% url 'reminders:template-default' t.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-slate-500 hover:underline">Make default</button>
+              </form>
+              <form method="post" action="{% url 'reminders:template-delete' t.pk %}"
+                    onsubmit="return confirm('Delete this email body? This cannot be undone.')">
+                {% csrf_token %}
+                <button type="submit" class="text-sm text-red-500 hover:underline">Delete</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── Placeholder reference ────────────────────────────────────────────────── #}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">Placeholders</h2>
+    <p class="text-sm text-slate-500 mb-3">
+      Substituted per recipient when the mail is built. An unrecognised token is left in the
+      text as written, so a typo shows up in the preview.
+    </p>
+    <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1 text-sm">
+      {% for token, description in placeholders %}
+      <div class="flex gap-2">
+        <dt><code class="bg-slate-100 rounded px-1 text-xs font-mono whitespace-nowrap">{% templatetag openvariable %}{{ token }}{% templatetag closevariable %}</code></dt>
+        <dd class="text-slate-500">{{ description }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+  </div>
+
+</div>
+{% endblock %}

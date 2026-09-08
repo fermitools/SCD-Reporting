@@ -88,6 +88,39 @@ email:
   password: ""
   defaultFrom: "noreply@localhost"
 
+# ── Email reminders ────────────────────────────────────────────────────────────
+# Nudges people to file activity reports. The web UI (Reminders → Schedules)
+# owns *when* each reminder goes out; the settings here only control the driver
+# that evaluates those schedules, and the links inside the mail.
+reminders:
+  # Absolute site root used to build links inside a reminder email. Required for
+  # scheduled sends, which have no HTTP request to derive it from. Defaults to
+  # https://<route.hostname> when that is set.
+  baseUrl: ""
+  # A recipient reminded within this many hours is skipped. 0 disables the guard.
+  minIntervalHours: "20"
+  # Days without an entry before someone counts as overdue.
+  staleDays: "14"
+  # Largest number of recipients one send will process.
+  batchSize: "200"
+  # Run the scheduler as a daemon thread inside the web pods instead of using
+  # the CronJob below. Safe with several gunicorn workers (schedules are claimed
+  # atomically) but ties delivery to web-process uptime. Prefer the CronJob.
+  inProcessScheduler: "0"
+  cronjob:
+    # The supported production driver.
+    enabled: true
+    # How often to *check* for due schedules — not when reminders are sent. A
+    # 15-minute tick means a reminder is at most 15 minutes late.
+    schedule: "*/15 * * * *"
+    timeZone: "America/Chicago"
+    # SQLite lives on the web Deployment's RWO PVC, so the job needs it mounted.
+    # Set false when database.url points at Postgres.
+    mountData: true
+    deadlineSeconds: 600
+    successHistory: 3
+    failureHistory: 3
+
 # ── GitHub bug-report integration ─────────────────────────────────────────────
 # Prefer GitHub App credentials (appId + appInstallationId + appPrivateKey).
 # Falls back to a personal access token (token) if App creds are not set.

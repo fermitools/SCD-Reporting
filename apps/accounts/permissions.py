@@ -60,3 +60,20 @@ class TaxonomyEditorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         if not self.request.user.is_authenticated:
             return super().handle_no_permission()
         raise PermissionDenied
+
+
+class ReminderSenderRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """Functional Lead and above — may view the reminder pages and send reminders.
+
+    Auditor is excluded on purpose: it is a read-only role, and mailing people
+    on the division's behalf is a write action.
+    """
+
+    def test_func(self):
+        from apps.reminders.scope import can_send
+        return can_send(self.request.user)
+
+    def handle_no_permission(self):
+        if not self.request.user.is_authenticated:
+            return super().handle_no_permission()
+        raise PermissionDenied

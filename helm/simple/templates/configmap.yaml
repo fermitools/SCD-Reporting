@@ -32,6 +32,11 @@ data:
   EMAIL_PORT: {{ .Values.email.port | quote }}
   EMAIL_HOST_USER: {{ .Values.email.user | quote }}
   DEFAULT_FROM_EMAIL: {{ .Values.email.defaultFrom | quote }}
+  REMINDER_BASE_URL: {{ if .Values.reminders.baseUrl }}{{ .Values.reminders.baseUrl | quote }}{{ else if .Values.route.hostname }}{{ printf "https://%s" .Values.route.hostname | quote }}{{ else }}""{{ end }}
+  REMINDER_MIN_INTERVAL_HOURS: {{ .Values.reminders.minIntervalHours | quote }}
+  REMINDER_STALE_DAYS: {{ .Values.reminders.staleDays | quote }}
+  REMINDER_BATCH_SIZE: {{ .Values.reminders.batchSize | quote }}
+  REMINDER_SCHEDULER_ENABLED: {{ .Values.reminders.inProcessScheduler | quote }}
   GOOGLE_CLIENT_ID: {{ .Values.google.clientId | quote }}
   OIDC_PROVIDER_URL: {{ .Values.oidc.providerUrl | quote }}
   OIDC_CLIENT_ID: {{ .Values.oidc.clientId | quote }}

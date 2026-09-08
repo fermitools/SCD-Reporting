@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Reminder Log — SCD Reporting{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Reminder Log</h1>
+      <p class="text-sm text-slate-500 mt-1">Every reminder attempted for people in your scope.</p>
+    </div>
+    <div class="flex gap-3 text-sm">
+      <a href="{% url 'reminders:recipients' %}" class="text-scd-primary hover:underline">Recipients</a>
+      <a href="{% url 'reminders:schedules' %}" class="text-scd-primary hover:underline">Schedules</a>
+    </div>
+  </div>
+
+  <form method="get" class="bg-white rounded-lg border border-slate-200 shadow-sm px-5 py-4 flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Recipient email</label>
+      <input type="text" name="q" value="{{ request.GET.q }}" placeholder="partial match…"
+             class="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Status</label>
+      <select name="status"
+              class="rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+        <option value="">All</option>
+        {% for val, label in status_choices %}
+        <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit"
+            class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-md transition-colors self-end">
+      Filter
+    </button>
+    <a href="{% url 'reminders:log' %}" class="text-sm text-slate-500 hover:underline self-end pb-1">Reset</a>
+  </form>
+
+  {% if rows %}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
+    <table class="min-w-full divide-y divide-slate-200 text-sm">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">When</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Recipient</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden md:table-cell">Trigger</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden lg:table-cell">Last entry then</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-600">Detail</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for r in rows %}
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 text-slate-500 whitespace-nowrap tabular-nums text-xs">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+          <td class="px-4 py-3 text-slate-700">{{ r.to_email }}</td>
+          <td class="px-4 py-3">
+            {% if r.status == 'sent' %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Sent</span>
+            {% elif r.status == 'failed' %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Failed</span>
+            {% else %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">Skipped</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-slate-600 text-xs hidden md:table-cell">
+            {% if r.schedule %}schedule “{{ r.schedule.name }}”
+            {% elif r.sent_by %}{{ r.sent_by.display_name|default:r.sent_by.email }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="px-4 py-3 text-slate-500 text-xs tabular-nums hidden lg:table-cell">
+            {{ r.last_entry_at|date:"Y-m-d"|default:"never" }}
+          </td>
+          <td class="px-4 py-3 text-slate-400 text-xs">{{ r.detail|default:"" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <div class="flex justify-center gap-2 text-sm">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}&q={{ request.GET.q }}&status={{ status }}"
+       class="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50">← Previous</a>
+    {% endif %}
+    <span class="px-3 py-1 text-slate-500">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}&q={{ request.GET.q }}&status={{ status }}"
+       class="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-12 text-center">
+    <p class="text-slate-400">No reminders have been sent yet.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

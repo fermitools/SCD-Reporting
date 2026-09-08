@@ -1,0 +1,15 @@
+<div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+  <div class="px-6 py-3 border-b border-slate-200 bg-slate-50">
+    <p class="text-xs font-medium text-slate-500">Subject</p>
+    <p class="text-sm font-semibold text-slate-800">{{ subject }}</p>
+  </div>
+  <div class="px-6 py-5 md-body text-sm text-slate-700">
+    {{ html|safe }}
+  </div>
+  <details class="border-t border-slate-200">
+    <summary class="px-6 py-2 text-xs text-slate-500 cursor-pointer hover:text-slate-700">
+      Plain-text alternative
+    </summary>
+    <pre class="px-6 py-3 text-xs text-slate-600 whitespace-pre-wrap bg-slate-50">{{ text }}</pre>
+  </details>
+</div>

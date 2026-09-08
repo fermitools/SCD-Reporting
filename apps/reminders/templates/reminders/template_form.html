@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{% if object %}Edit{% else %}New{% endif %} Reminder Body — SCD Reporting{% endblock %}
+
+{% block content %}
+<div class="space-y-4 max-w-6xl">
+
+  <div class="flex items-center justify-between gap-3">
+    <h1 class="text-2xl font-bold text-slate-900">
+      {% if object %}Edit “{{ object.name }}”{% else %}New reminder body{% endif %}
+    </h1>
+    <a href="{% url 'reminders:templates' %}" class="text-sm text-slate-500 hover:underline">Back to list</a>
+  </div>
+
+  <form method="post" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% csrf_token %}
+
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-5 space-y-4">
+      {% if form.non_field_errors %}
+      <div class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3 text-sm">
+        {{ form.non_field_errors }}
+      </div>
+      {% endif %}
+
+      <div>
+        <label for="{{ form.name.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">
+          Name <span class="text-red-500">*</span>
+        </label>
+        {{ form.name }}
+        {% for e in form.name.errors %}<p class="mt-1 text-xs text-red-600">{{ e }}</p>{% endfor %}
+      </div>
+
+      <div>
+        <label for="{{ form.subject.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">
+          Subject <span class="text-red-500">*</span>
+        </label>
+        {{ form.subject }}
+        {% for e in form.subject.errors %}<p class="mt-1 text-xs text-red-600">{{ e }}</p>{% endfor %}
+      </div>
+
+      <div>
+        <label for="{{ form.body.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">
+          Body <span class="text-red-500">*</span>
+        </label>
+        {{ form.body }}
+        <p class="mt-1 text-xs text-slate-400">
+          Markdown. Recipients get both a plain-text and an HTML version.
+        </p>
+        {% for e in form.body.errors %}<p class="mt-1 text-xs text-red-600">{{ e }}</p>{% endfor %}
+      </div>
+
+      <label class="flex items-center gap-3 cursor-pointer select-none">
+        {{ form.is_default }}
+        <span class="text-sm text-slate-700">{{ form.is_default.label }}</span>
+      </label>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+                class="bg-scd-primary hover:bg-scd-primary-hover text-white font-medium px-5 py-2 rounded-md transition-colors">
+          Save
+        </button>
+        <button type="button"
+                hx-post="{% url 'reminders:template-preview' %}"
+                hx-include="[name='subject'], [name='body']"
+                hx-target="#body-preview"
+                class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-5 py-2 rounded-md transition-colors">
+          Preview
+        </button>
+        <a href="{% url 'reminders:templates' %}" class="text-sm text-slate-500 hover:underline">Cancel</a>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <div id="body-preview">
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-12 text-center text-sm text-slate-400">
+          Press <strong>Preview</strong> to see the mail rendered with the placeholders filled in
+          from your own account.
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg border border-slate-200 shadow-sm px-6 py-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Placeholders</h2>
+        <dl class="space-y-1 text-sm">
+          {% for token, description in placeholders %}
+          <div class="flex gap-2">
+            <dt><code class="bg-slate-100 rounded px-1 text-xs font-mono whitespace-nowrap">{% templatetag openvariable %}{{ token }}{% templatetag closevariable %}</code></dt>
+            <dd class="text-slate-500">{{ description }}</dd>
+          </div>
+          {% endfor %}
+        </dl>
+      </div>
+    </div>
+  </form>
+
+</div>
+{% endblock %}

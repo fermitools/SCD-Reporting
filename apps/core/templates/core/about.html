@@ -61,6 +61,47 @@
       </div>
     </div>
 
+    <div class="px-6 py-5 border-t border-slate-100">
+      <h3 class="text-sm font-semibold text-slate-900 mb-3">Dependencies</h3>
+      <p class="text-sm text-slate-500 mb-4">
+        Third-party components this deployment runs on. Pinned ranges live in
+        <code class="font-mono bg-slate-100 px-1 rounded text-xs">requirements.txt</code>.
+      </p>
+
+      <dl class="space-y-3 text-sm">
+        <div>
+          <dt class="text-slate-500 font-medium">Framework and web layer</dt>
+          <dd class="text-slate-700">
+            Django 5 · django-allauth (local, OIDC, and Google sign-in; WebAuthn passkeys) ·
+            django-htmx · django-filter · django-widget-tweaks · django-tailwind ·
+            HTMX 2 · Tailwind CSS · Gunicorn
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500 font-medium">Data</dt>
+          <dd class="text-slate-700">
+            SQLite or PostgreSQL via dj-database-url and psycopg2 · PyYAML for the
+            configuration files in <code class="font-mono bg-slate-100 px-1 rounded text-xs">config/</code>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500 font-medium">Content and export</dt>
+          <dd class="text-slate-700">
+            Markdown with nh3 (Rust <em>ammonia</em>) HTML sanitising · ReportLab for PDF ·
+            openpyxl for XLSX
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500 font-medium">Integrations</dt>
+          <dd class="text-slate-700">
+            anthropic for AI narrative summaries · hvac for HashiCorp Vault secret loading ·
+            requests and PyJWT for GitHub App bug-report submission · fido2 and cryptography
+            for passkeys · SMTP for activity-report reminders
+          </dd>
+        </div>
+      </dl>
+    </div>
+
     <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-4 text-sm">
       {% if user.is_authenticated %}
       <a href="{% url 'dashboard' %}" class="text-slate-400 hover:text-slate-600">
