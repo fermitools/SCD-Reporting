@@ -412,5 +412,20 @@ INTERNAL_IPS = ['127.0.0.1']
 
 # Anthropic — used for AI report summaries
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
-ANTHROPIC_SUMMARY_MODEL = os.environ.get('ANTHROPIC_SUMMARY_MODEL', 'claude-sonnet-4-6')
+# Default only — this deployment overrides it with the model name its LiteLLM
+# proxy exposes (azure/claude-sonnet-5). A bare deployment talks to the
+# Anthropic API directly, so the fallback is a plain first-party model id.
+ANTHROPIC_SUMMARY_MODEL = os.environ.get('ANTHROPIC_SUMMARY_MODEL', 'claude-sonnet-5')
 ANTHROPIC_BASE_URL = os.environ.get('ANTHROPIC_BASE_URL', '')
+
+# Output ceiling for a generated summary. The default prompt asks for a table
+# row per entry, so a report over a few dozen entries needs far more than the
+# 2048 this used to be pinned at — that ceiling cut summaries off mid-section
+# and the truncation was never reported. The request is streamed, so a large
+# value here does not risk an HTTP timeout.
+ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', '').strip() or 16000)
+
+# Largest prompt the summariser will send. Exceeding it raises an error naming
+# the entry count and asking for a narrower filter, rather than truncating the
+# entries or letting the API reject the request. 0 disables the check.
+ANTHROPIC_MAX_INPUT_TOKENS = int(os.environ.get('ANTHROPIC_MAX_INPUT_TOKENS', '').strip() or 150000)

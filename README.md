@@ -71,7 +71,7 @@ Each app is independently namespaced and has its own URLs, templates, and tests.
 | PDF export | reportlab (pure Python, no system dependencies) |
 | Markdown sanitising | nh3 (Rust `ammonia` bindings; HTML5-conformant allowlist sanitizer) |
 | XLSX export | openpyxl |
-| AI summary | Anthropic Python SDK (claude-sonnet-4-6 by default) |
+| AI summary | Anthropic Python SDK (claude-sonnet-5 by default) |
 | Filtering | django-filter |
 | GitHub integration | PyJWT + GitHub App installation tokens |
 | Container | Docker multi-arch (linux/amd64 + linux/arm64) |
@@ -171,7 +171,7 @@ To route requests through a custom endpoint (e.g. a LiteLLM proxy):
 
 ```bash
 export ANTHROPIC_BASE_URL=https://litellm.example.org
-export ANTHROPIC_SUMMARY_MODEL=azure/claude-sonnet-4-6
+export ANTHROPIC_SUMMARY_MODEL=azure/claude-sonnet-5
 ```
 
 ---
@@ -447,7 +447,9 @@ the command-line flags above.
 | `SCD_DISABLE_LOCAL_SIGNUP` | `0` | Set to `1` to block new local accounts |
 | `ACCOUNT_EMAIL_VERIFICATION` | `optional` | allauth email verification: `none`, `optional`, `mandatory` |
 | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key; required for AI summary feature |
-| `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-4-6` | Model used for report summaries |
+| `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-5` | Model used for report summaries |
+| `ANTHROPIC_MAX_TOKENS` | `16000` | Output ceiling for a generated summary; a truncated summary is flagged in the UI |
+| `ANTHROPIC_MAX_INPUT_TOKENS` | `150000` | Largest prompt the summariser will send; `0` disables the check |
 | `ANTHROPIC_BASE_URL` | *(empty)* | Custom API base URL (e.g. LiteLLM proxy) |
 | `GITHUB_APP_ID` | *(empty)* | GitHub App numeric ID for bug report submission |
 | `GITHUB_APP_INSTALLATION_ID` | *(empty)* | GitHub App installation ID |

@@ -196,8 +196,8 @@ ACCOUNT_EMAIL_VERIFICATION=optional
 # Obtain a key from https://console.anthropic.com
 ANTHROPIC_API_KEY=
 
-# Override the model used for summaries (default: claude-sonnet-4-6)
-# ANTHROPIC_SUMMARY_MODEL=claude-sonnet-4-6
+# Override the model used for summaries (default: claude-sonnet-5)
+# ANTHROPIC_SUMMARY_MODEL=claude-sonnet-5
 ```
 
 ---

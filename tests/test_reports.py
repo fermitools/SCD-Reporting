@@ -361,10 +361,20 @@ class TestNamedTemplateDelete:
         assert resp.status_code == 403
 
 
+def _summary_result(text, truncated=False, max_tokens=16000):
+    from apps.reports.ai_summary import SummaryResult
+    return SummaryResult(
+        text=text, truncated=truncated, stop_reason='max_tokens' if truncated else 'end_turn',
+        input_tokens=100, output_tokens=200, max_tokens=max_tokens,
+    )
+
+
 class TestReportSummary:
     def test_ai_summary_markdown_is_sanitized(self, client, admin_user, entry, monkeypatch):
         def fake_generate(qs, **kwargs):
-            return '# Summary\n\n<img src=x onerror=alert(1)> **safe** [bad](javascript:alert(1))'
+            return _summary_result(
+                '# Summary\n\n<img src=x onerror=alert(1)> **safe** [bad](javascript:alert(1))'
+            )
 
         monkeypatch.setattr('apps.reports.views.ai_summary.generate', fake_generate)
         client.force_login(admin_user)
@@ -377,6 +387,161 @@ class TestReportSummary:
         assert b'<img' not in resp.content
         assert b'<a rel="noopener noreferrer">bad</a>' in resp.content
         assert b'<a href="javascript:' not in resp.content
+
+    def test_truncated_summary_is_flagged_in_the_page(self, client, admin_user, entry, monkeypatch):
+        """A summary cut off at max_tokens must say so (the reported symptom).
+
+        The old code returned the partial text with no indication, so a report
+        that stopped after a few sections looked like a complete one.
+        """
+        monkeypatch.setattr(
+            'apps.reports.views.ai_summary.generate',
+            lambda qs, **kw: _summary_result('## Overview\n\nPartial', truncated=True),
+        )
+        client.force_login(admin_user)
+        resp = client.post(reverse('reports:summary'), {})
+
+        assert b'This summary is incomplete' in resp.content
+        assert b'16000' in resp.content
+        assert b'Partial' in resp.content     # the partial text is still shown
+
+    def test_complete_summary_has_no_truncation_notice(self, client, admin_user, entry, monkeypatch):
+        monkeypatch.setattr(
+            'apps.reports.views.ai_summary.generate',
+            lambda qs, **kw: _summary_result('## Overview\n\nAll of it'),
+        )
+        client.force_login(admin_user)
+        resp = client.post(reverse('reports:summary'), {})
+        assert b'This summary is incomplete' not in resp.content
+
+    def test_truncation_is_recorded_in_the_audit_log(self, client, admin_user, entry, monkeypatch):
+        from apps.audit.models import AuditLogEntry
+        monkeypatch.setattr(
+            'apps.reports.views.ai_summary.generate',
+            lambda qs, **kw: _summary_result('partial', truncated=True),
+        )
+        client.force_login(admin_user)
+        client.post(reverse('reports:summary'), {})
+        row = AuditLogEntry.objects.filter(action='export').order_by('-timestamp').first()
+        assert row.changes['truncated'] is True
+        assert row.changes['output_tokens'] == 200
+
+
+class TestSummaryTokenBudget:
+    """The truncation bug itself: max_tokens was pinned at 2048 (GitHub follow-up).
+
+    The default prompt asks for a Markdown table row per entry, so a report over
+    a few dozen entries exceeded 2048 output tokens and stopped mid-section.
+    """
+
+    def test_max_tokens_default_is_not_the_old_ceiling(self):
+        from django.conf import settings
+        assert settings.ANTHROPIC_MAX_TOKENS >= 16000
+
+    def test_generate_passes_the_configured_max_tokens_and_streams(self, db, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'test-key'
+        settings.ANTHROPIC_MAX_TOKENS = 24000
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0      # skip the pre-count round trip
+        captured = {}
+
+        stub = _FakeAnthropic(captured, stop_reason='end_turn', text='done')
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        result = ai_summary.generate(WorkItem.objects.all())
+
+        assert captured['streamed'] is True, 'a large max_tokens must be streamed'
+        assert captured['max_tokens'] == 24000
+        assert result.text == 'done'
+        assert result.truncated is False
+
+    def test_generate_reports_truncation(self, db, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'test-key'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        stub = _FakeAnthropic({}, stop_reason='max_tokens', text='cut off here')
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        result = ai_summary.generate(WorkItem.objects.all())
+
+        assert result.truncated is True
+        assert result.stop_reason == 'max_tokens'
+        assert result.text == 'cut off here'
+
+    def test_oversized_input_is_refused_with_an_actionable_message(self, db, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'test-key'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 10
+        stub = _FakeAnthropic({}, stop_reason='end_turn', text='x', counted_tokens=5000)
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        with pytest.raises(ValueError, match='input tokens'):
+            ai_summary.generate(WorkItem.objects.all())
+
+    def test_a_failed_pre_count_does_not_block_the_summary(self, db, entry, settings, monkeypatch):
+        """The guard is a courtesy; losing it must not lose the feature."""
+        settings.ANTHROPIC_API_KEY = 'test-key'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 150000
+        stub = _FakeAnthropic({}, stop_reason='end_turn', text='ok', count_raises=True)
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        assert ai_summary.generate(WorkItem.objects.all()).text == 'ok'
+
+    def test_missing_api_key_raises_before_any_call(self, db, entry, settings):
+        settings.ANTHROPIC_API_KEY = ''
+        from apps.reports import ai_summary
+        with pytest.raises(ValueError, match='ANTHROPIC_API_KEY'):
+            ai_summary.generate(WorkItem.objects.all())
+
+
+class _FakeAnthropic:
+    """Minimal stand-in for anthropic.Anthropic covering the calls generate() makes."""
+
+    def __init__(self, captured, stop_reason, text, counted_tokens=10, count_raises=False):
+        self._captured = captured
+        self._stop_reason = stop_reason
+        self._text = text
+        self._counted = counted_tokens
+        self._count_raises = count_raises
+        self.messages = self._Messages(self)
+
+    class _Messages:
+        def __init__(self, outer):
+            self._outer = outer
+
+        def count_tokens(self, **kwargs):
+            if self._outer._count_raises:
+                raise RuntimeError('count_tokens unavailable')
+            return type('Count', (), {'input_tokens': self._outer._counted})()
+
+        def create(self, **kwargs):
+            self._outer._captured['streamed'] = False
+            raise AssertionError('generate() must stream, not block')
+
+        def stream(self, **kwargs):
+            self._outer._captured['streamed'] = True
+            self._outer._captured['max_tokens'] = kwargs.get('max_tokens')
+            self._outer._captured['model'] = kwargs.get('model')
+            return self._outer._Stream(self._outer)
+
+    class _Stream:
+        def __init__(self, outer):
+            self._outer = outer
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get_final_message(self):
+            outer = self._outer
+            block = type('Block', (), {'type': 'text', 'text': outer._text})()
+            usage = type('Usage', (), {'input_tokens': 10, 'output_tokens': 20})()
+            return type('Msg', (), {
+                'content': [block], 'stop_reason': outer._stop_reason, 'usage': usage,
+            })()
 
 
 # ── PDF markdown tables (issue #13) ──────────────────────────────────────────

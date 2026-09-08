@@ -135,20 +135,24 @@ class ReportSummaryView(AuditorOrAdminRequiredMixin, View):
             pass
 
         try:
-            text = ai_summary.generate(qs, user=request.user, template=named_template)
+            result = ai_summary.generate(qs, user=request.user, template=named_template)
         except Exception as exc:
             return render(request, 'reports/partials/_summary.html', {'error': str(exc)})
         from apps.audit.service import log_event
         log_event(
             action='export',
             request=request,
-            changes={'format': 'ai_summary', 'count': count, 'selection': bool(selected_ids)},
+            changes={
+                'format': 'ai_summary', 'count': count, 'selection': bool(selected_ids),
+                'output_tokens': result.output_tokens, 'truncated': result.truncated,
+            },
         )
-        html = render_markdown(text)
         return render(request, 'reports/partials/_summary.html', {
-            'summary_text': text,
-            'summary_html': html,
+            'summary_text': result.text,
+            'summary_html': render_markdown(result.text),
             'count': count,
+            'truncated': result.truncated,
+            'max_tokens': result.max_tokens,
         })
 
 

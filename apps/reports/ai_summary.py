@@ -1,7 +1,11 @@
 """Generate an AI-written narrative summary of a WorkItem queryset via the Anthropic API."""
+import logging
 import os
+from typing import NamedTuple
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 from .exporters import _rows
 
@@ -31,8 +35,24 @@ def _format_entries(qs) -> str:
     return '\n'.join(parts) if parts else '(no entries)'
 
 
-def generate(qs, user=None, template=None) -> str:
-    """Call the Anthropic API and return the summary as a Markdown string.
+class SummaryResult(NamedTuple):
+    """The generated summary plus enough metadata to tell a partial one apart.
+
+    ``truncated`` is the reason the summary used to stop mid-section without
+    saying so: the model hit ``max_tokens`` and the caller returned the partial
+    text as though it were complete.
+    """
+
+    text: str
+    truncated: bool
+    stop_reason: str
+    input_tokens: int
+    output_tokens: int
+    max_tokens: int
+
+
+def generate(qs, user=None, template=None) -> SummaryResult:
+    """Call the Anthropic API and return the summary as Markdown plus metadata.
 
     template: a NamedPromptTemplate instance; overrides the user's default config when provided.
     """
@@ -55,13 +75,54 @@ def generate(qs, user=None, template=None) -> str:
         user_template = config.user_template
 
     model = settings.ANTHROPIC_SUMMARY_MODEL
+    max_tokens = int(settings.ANTHROPIC_MAX_TOKENS)
     base_url = settings.ANTHROPIC_BASE_URL or None
     client = anthropic.Anthropic(api_key=api_key, **({"base_url": base_url} if base_url else {}))
-    message = client.messages.create(
+
+    messages = [
+        {'role': 'user', 'content': user_template.format(entries=_format_entries(qs))}
+    ]
+
+    # Refuse an oversized request with an actionable message rather than
+    # silently truncating the entries or letting the API reject the call.
+    limit = int(settings.ANTHROPIC_MAX_INPUT_TOKENS)
+    if limit > 0:
+        try:
+            counted = client.messages.count_tokens(
+                model=model, system=system_prompt, messages=messages,
+            ).input_tokens
+        except Exception as exc:  # noqa: BLE001 — a failed pre-count must not block the summary
+            logger.warning('ai_summary: token pre-count failed: %s', exc)
+            counted = 0
+        if counted > limit:
+            raise ValueError(
+                f'These {qs.count()} entries come to about {counted:,} input tokens, over the '
+                f'{limit:,} configured limit. Narrow the filters, select fewer rows in the '
+                'preview, or raise ANTHROPIC_MAX_INPUT_TOKENS.'
+            )
+
+    # Streamed so a long summary cannot trip the SDK's HTTP timeout, which is
+    # what a large max_tokens on a blocking request risks.
+    with client.messages.stream(
         model=model,
-        max_tokens=2048,
+        max_tokens=max_tokens,
         system=system_prompt,
-        messages=[{'role': 'user', 'content': user_template.format(entries=_format_entries(qs))}],
+        messages=messages,
+    ) as stream:
+        message = stream.get_final_message()
+
+    text = '\n'.join(block.text for block in message.content if block.type == 'text')
+    truncated = message.stop_reason == 'max_tokens'
+    if truncated:
+        logger.warning(
+            'ai_summary: response hit max_tokens=%s (%s output tokens) — summary is partial',
+            max_tokens, message.usage.output_tokens,
+        )
+    return SummaryResult(
+        text=text,
+        truncated=truncated,
+        stop_reason=message.stop_reason or '',
+        input_tokens=message.usage.input_tokens,
+        output_tokens=message.usage.output_tokens,
+        max_tokens=max_tokens,
     )
-    text_blocks = [block.text for block in message.content if block.type == 'text']
-    return '\n'.join(text_blocks)

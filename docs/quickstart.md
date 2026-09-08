@@ -108,14 +108,14 @@ export ANTHROPIC_SUMMARY_MODEL=claude-haiku-4-5-20251001   # faster / cheaper
 .venv/bin/python manage.py runserver
 ```
 
-The default model is `claude-sonnet-4-6`. Admins can also edit the system prompt and user template from the Reports page without restarting the server.
+The default model is `claude-sonnet-5`. Admins can also edit the system prompt and user template from the Reports page without restarting the server.
 
 **Using a LiteLLM proxy** (optional):
 
 ```bash
 export ANTHROPIC_API_KEY=your-litellm-key
 export ANTHROPIC_BASE_URL=https://litellm.example.org
-export ANTHROPIC_SUMMARY_MODEL=azure/claude-sonnet-4-6
+export ANTHROPIC_SUMMARY_MODEL=azure/claude-sonnet-5
 .venv/bin/python manage.py runserver
 ```
 

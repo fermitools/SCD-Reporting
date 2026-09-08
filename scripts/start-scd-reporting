@@ -9,7 +9,7 @@
 #                                  (or set SCD_INITIAL_ADMIN_PASSWORD env var)
 #   --anthropic-key  <key>         Anthropic API key for the AI Summary feature
 #                                  (or set ANTHROPIC_API_KEY env var)
-#   --anthropic-model <model>      Model name for the AI Summary feature (default: claude-sonnet-4-6)
+#   --anthropic-model <model>      Model name for the AI Summary feature (default: claude-sonnet-5)
 #                                  (or set ANTHROPIC_SUMMARY_MODEL env var)
 #   --anthropic-base-url <url>     Base URL for the Anthropic API, e.g. to route through a proxy
 #                                  (or set ANTHROPIC_BASE_URL env var)

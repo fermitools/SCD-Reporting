@@ -198,7 +198,7 @@ config.save()
 | `SCD_DISABLE_LOCAL_SIGNUP` | `0` | Set `1` to disable local email/password signup |
 | `ACCOUNT_EMAIL_VERIFICATION` | `optional` | `mandatory` / `optional` / `none` |
 | `ANTHROPIC_API_KEY` | — | Enables AI report summaries |
-| `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-4-6` | Claude model to use for summaries |
+| `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-5` | Claude model to use for summaries |
 | `EMAIL_HOST` | — | SMTP host; omit to log emails to console |
 | `EMAIL_PORT` | `587` | `587` = STARTTLS, `465` = implicit SSL |
 | `EMAIL_HOST_USER` | — | SMTP username |

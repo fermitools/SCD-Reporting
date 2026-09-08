@@ -4,6 +4,13 @@
   <p class="text-sm text-red-600">{{ error }}</p>
 </div>
 {% else %}
+{% if truncated %}
+<div class="bg-yellow-50 border border-yellow-200 rounded-md px-4 py-3 mt-6 text-sm text-yellow-800">
+  <strong>This summary is incomplete.</strong> The model reached its {{ max_tokens }}-token output
+  limit and stopped mid-way. Summarise fewer entries — select a subset in the preview — or raise
+  <code>ANTHROPIC_MAX_TOKENS</code>.
+</div>
+{% endif %}
 <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mt-6">
   <div class="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
     <p class="text-sm font-semibold text-slate-700">

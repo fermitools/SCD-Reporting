@@ -78,13 +78,15 @@ class DashboardSummaryView(LoginRequiredMixin, View):
                 'error': 'No matching entries found.',
             })
         try:
-            text = generate(qs, user=request.user)
+            result = generate(qs, user=request.user)
         except Exception as exc:
             return render(request, 'core/partials/_dashboard_summary.html', {'error': str(exc)})
         return render(request, 'core/partials/_dashboard_summary.html', {
-            'summary_text': text,
-            'summary_html': render_markdown(text),
+            'summary_text': result.text,
+            'summary_html': render_markdown(result.text),
             'count': count,
+            'truncated': result.truncated,
+            'max_tokens': result.max_tokens,
         })
 
 

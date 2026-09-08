@@ -64,7 +64,7 @@ oc rollout restart deployment/web -n scd-reporting
 | `gunicorn.workers` | `3` | Gunicorn worker count |
 | `gunicorn.logLevel` | `info` | Gunicorn log level |
 | `anthropic.apiKey` | `""` | Anthropic (or LiteLLM) API key |
-| `anthropic.summaryModel` | `claude-sonnet-4-6` | Model for AI report summaries |
+| `anthropic.summaryModel` | `claude-sonnet-5` | Model for AI report summaries |
 | `anthropic.baseUrl` | `""` | Custom API base URL (e.g. a LiteLLM proxy); leave empty for standard Anthropic API |
 | `email.host` | `""` | SMTP host |
 | `email.port` | `"587"` | SMTP port |
@@ -95,7 +95,7 @@ oidc:
   clientSecret: "..."
 anthropic:
   apiKey: "..."
-  summaryModel: "azure/claude-sonnet-4-6"
+  summaryModel: "azure/claude-sonnet-5"
   baseUrl: "https://litellm.fnal.gov"
 route:
   hostname: scd-reporting.fnal.gov
