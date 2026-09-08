@@ -51,10 +51,11 @@ class SummaryResult(NamedTuple):
     max_tokens: int
 
 
-def generate(qs, user=None, template=None) -> SummaryResult:
-    """Call the Anthropic API and return the summary as Markdown plus metadata.
+def _prepare(qs, user=None, template=None, max_tokens=None):
+    """Build everything a summary request needs, shared by both code paths.
 
-    template: a NamedPromptTemplate instance; overrides the user's default config when provided.
+    Returns ``(client, model, system_prompt, messages, max_tokens)``. Raises
+    ValueError when the API key is missing or the prompt is too large.
     """
     import anthropic
     from .models import AIPromptConfig
@@ -75,7 +76,8 @@ def generate(qs, user=None, template=None) -> SummaryResult:
         user_template = config.user_template
 
     model = settings.ANTHROPIC_SUMMARY_MODEL
-    max_tokens = int(settings.ANTHROPIC_MAX_TOKENS)
+    if max_tokens is None:
+        max_tokens = int(settings.ANTHROPIC_MAX_TOKENS)
     base_url = settings.ANTHROPIC_BASE_URL or None
     client = anthropic.Anthropic(api_key=api_key, **({"base_url": base_url} if base_url else {}))
 
@@ -106,16 +108,10 @@ def generate(qs, user=None, template=None) -> SummaryResult:
                 'preview, or raise ANTHROPIC_MAX_INPUT_TOKENS.'
             )
 
-    # Streamed so a long summary cannot trip the SDK's HTTP timeout, which is
-    # what a large max_tokens on a blocking request risks.
-    with client.messages.stream(
-        model=model,
-        max_tokens=max_tokens,
-        system=system_prompt,
-        messages=messages,
-    ) as stream:
-        message = stream.get_final_message()
+    return client, model, system_prompt, messages, int(max_tokens)
 
+
+def _result_from(message, max_tokens) -> SummaryResult:
     text = '\n'.join(block.text for block in message.content if block.type == 'text')
     truncated = message.stop_reason == 'max_tokens'
     if truncated:
@@ -131,3 +127,53 @@ def generate(qs, user=None, template=None) -> SummaryResult:
         output_tokens=message.usage.output_tokens,
         max_tokens=max_tokens,
     )
+
+
+def generate(qs, user=None, template=None) -> SummaryResult:
+    """Call the Anthropic API and return the summary as Markdown plus metadata.
+
+    template: a NamedPromptTemplate instance; overrides the user's default config when provided.
+    """
+    client, model, system_prompt, messages, max_tokens = _prepare(qs, user, template)
+
+    # Streamed so a long summary cannot trip the SDK's HTTP timeout, which is
+    # what a large max_tokens on a blocking request risks.
+    with client.messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=messages,
+    ) as stream:
+        message = stream.get_final_message()
+
+    return _result_from(message, max_tokens)
+
+
+def generate_stream(qs, user=None, template=None, max_tokens=None):
+    """Yield the summary incrementally, then the finished SummaryResult.
+
+    Yields ``('delta', text)`` for each chunk the model emits and finally
+    ``('done', SummaryResult)``. Lets the caller push text to the browser as it
+    arrives, which is what takes the generation out from under a single
+    blocking request — the ceiling on a non-streamed summary is the 300s
+    gunicorn/route timeout, not the model.
+    """
+    if max_tokens is None:
+        max_tokens = int(getattr(settings, 'ANTHROPIC_STREAM_MAX_TOKENS', 0)
+                         or settings.ANTHROPIC_MAX_TOKENS)
+    client, model, system_prompt, messages, max_tokens = _prepare(
+        qs, user, template, max_tokens=max_tokens,
+    )
+
+    with client.messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=messages,
+    ) as stream:
+        for chunk in stream.text_stream:
+            if chunk:
+                yield 'delta', chunk
+        message = stream.get_final_message()
+
+    yield 'done', _result_from(message, max_tokens)

@@ -1,7 +1,11 @@
+import json
+import logging
+
 from django.contrib import messages
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views import View
 
@@ -13,6 +17,8 @@ from . import ai_summary, exporters
 from .filters import WorkItemFilter
 from .forms import AIPromptConfigForm, NamedPromptTemplateForm
 from .models import AIPromptConfig, NamedPromptTemplate
+
+logger = logging.getLogger(__name__)
 
 PREVIEW_LIMIT = 50
 
@@ -87,6 +93,108 @@ class ReportPreviewView(AuditorOrAdminRequiredMixin, View):
             'rows':    rows,
             'total':   total,
             'limit':   PREVIEW_LIMIT,
+        })
+
+
+class ReportSummaryStreamView(AuditorOrAdminRequiredMixin, View):
+    """Server-Sent Events variant of ReportSummaryView.
+
+    The blocking endpoint has to finish inside the 300s gunicorn/route timeout,
+    which caps a summary at roughly 26k output tokens. Streaming pushes each
+    chunk as the model emits it, so the reader sees progress immediately and the
+    router's inactivity timeout keeps resetting.
+
+    Frames, all with a JSON payload so newlines survive the SSE wire format:
+
+        event: start  {"count": n}
+        event: delta  {"t": "...chunk of markdown..."}
+        event: done   {"html": "<the finished pane>", "truncated": bool, ...}
+        event: error  {"message": "..."}
+
+    The finished pane is rendered server-side and shipped in the done frame, so
+    the nh3 sanitiser stays authoritative and the download buttons come back
+    without a second round trip.
+    """
+
+    def post(self, request):
+        group_scope   = _get_group_scope(request.user)
+        project_scope = _get_project_scope(request.user)
+        _, qs = _filtered_qs(request.POST, group_scope=group_scope,
+                             project_scope=project_scope, user=request.user)
+        selected_ids = request.POST.getlist('selected_ids')
+        if selected_ids:
+            qs = qs.filter(pk__in=selected_ids)
+        count = qs.count()
+
+        named_template = None
+        try:
+            pk = int(request.POST.get('selected_template_pk', '') or 0)
+            if pk:
+                named_template = NamedPromptTemplate.objects.get(pk=pk, user=request.user)
+        except (ValueError, NamedPromptTemplate.DoesNotExist):
+            pass
+
+        response = StreamingHttpResponse(
+            self._events(request, qs, count, named_template),
+            content_type='text/event-stream',
+        )
+        response['Cache-Control'] = 'no-cache'
+        # Tell any buffering proxy in front of us to pass bytes straight through;
+        # a buffered SSE stream arrives all at once and defeats the point.
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+    @staticmethod
+    def _frame(event, payload):
+        return f'event: {event}\ndata: {json.dumps(payload)}\n\n'
+
+    def _events(self, request, qs, count, named_template):
+        if count == 0:
+            yield self._frame('error', {
+                'message': 'No entries matched. Adjust filters or select rows in the preview first.',
+            })
+            return
+
+        yield self._frame('start', {'count': count})
+
+        parts = []
+        try:
+            for kind, value in ai_summary.generate_stream(
+                qs, user=request.user, template=named_template,
+            ):
+                if kind == 'delta':
+                    parts.append(value)
+                    yield self._frame('delta', {'t': value})
+                else:
+                    result = value
+        except Exception as exc:  # noqa: BLE001 — the error has to reach the browser as a frame
+            logger.error('ai_summary stream failed: %s', exc, exc_info=True)
+            yield self._frame('error', {'message': str(exc)})
+            return
+
+        from apps.audit.service import log_event
+        log_event(
+            action='export',
+            request=request,
+            changes={
+                'format': 'ai_summary_stream', 'count': count,
+                'output_tokens': result.output_tokens, 'truncated': result.truncated,
+            },
+        )
+
+        html = render_to_string('reports/partials/_summary.html', {
+            'summary_text': result.text,
+            'summary_html': render_markdown(result.text),
+            'count': count,
+            'truncated': result.truncated,
+            'max_tokens': result.max_tokens,
+        }, request=request)
+
+        yield self._frame('done', {
+            'html': html,
+            'truncated': result.truncated,
+            'output_tokens': result.output_tokens,
+            'max_tokens': result.max_tokens,
         })
 
 

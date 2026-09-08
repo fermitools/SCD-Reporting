@@ -19,8 +19,9 @@ route:
   hostname: ""
   # HAProxy router request timeout. The cluster default is 30s, which cuts off
   # long AI-summary requests before gunicorn (GUNICORN_TIMEOUT) returns. Keep
-  # this >= gunicorn.timeout.
-  timeout: 300s
+  # this >= gunicorn.timeout. HAProxy's is an inactivity timeout, so a streamed
+  # summary keeps resetting it, but the blocking endpoint still needs the room.
+  timeout: 600s
   # Adds the `ingresscontroller: <value>` label to the Route, which is how the
   # cluster's IngressControllers shard routes between routers. This value MUST
   # agree with where scd-reporting.fnal.gov points in DNS — changing one without
@@ -72,7 +73,13 @@ gunicorn:
   logLevel: info
   # Worker request timeout (seconds). Must exceed the slowest AI-summary
   # generation; the default gunicorn timeout of 30s kills the worker mid-call.
-  timeout: 300
+  #
+  # This is a hard ceiling on a streamed summary too — a worker streaming a
+  # response for longer than this is reaped mid-stream, verified by measurement,
+  # and the threaded worker class behaves the same. Raised to 600 to give the
+  # streaming endpoint room for anthropic.streamMaxTokens; the cost is that a
+  # genuinely hung worker now takes 10 minutes to reap, and there are only three.
+  timeout: 600
 
 # ── AI summaries ───────────────────────────────────────────────────────────────
 anthropic:
@@ -92,6 +99,12 @@ anthropic:
   # Largest prompt the summariser will send. Suits a 1M-context model; lower it
   # to ~150000 for a 200k-context model. "0" disables the check.
   maxInputTokens: "400000"
+  # Output ceiling for the streamed summary endpoint (/reports/summary/stream/).
+  # Bounded by gunicorn.timeout, not by the model: a worker is reaped mid-stream
+  # once it exceeds that, so keep
+  #     streamMaxTokens <= (gunicorn.timeout - 20s) * 88 tokens/sec
+  # with margin. "0" falls back to maxTokens.
+  streamMaxTokens: "40000"
 
 # ── Email (SMTP) ───────────────────────────────────────────────────────────────
 # The lab gateway is smtp.fnal.gov:25. It accepts on-site and OKD-cluster

@@ -342,15 +342,12 @@
         </button>
 
         <button type="button" id="summary-btn"
-                hx-post="{% url 'reports:summary' %}"
-                hx-include="#report-form, #report-preview"
-                hx-target="#summary-pane"
-                hx-swap="innerHTML"
-                hx-indicator="#summary-spinner"
-                onclick="updateSummarySpinner()"
+                onclick="streamSummary()"
                 class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
           AI Summary
         </button>
+        <button type="button" id="summary-stop" class="hidden text-sm text-slate-500 hover:underline"
+                onclick="stopSummary()">Stop</button>
 
         <span id="preview-spinner" class="htmx-indicator text-xs text-slate-400">Loading…</span>
         <span id="summary-spinner" class="htmx-indicator text-xs text-slate-400">Generating summary…</span>
@@ -554,38 +551,134 @@ function submitDownload(url) {
   document.body.removeChild(tmp);
 }
 
-// ── AI Summary spinner label ──────────────────────────────────────────────────
-function updateSummarySpinner() {
+// ── AI Summary ────────────────────────────────────────────────────────────────
+// Which prompt template the run is using, for the streaming status line.
+function summaryTemplateLabel() {
   var sel = document.getElementById('prompt-template-select');
-  var label = sel && sel.value ? sel.options[sel.selectedIndex].text : 'Default';
-  var spinner = document.getElementById('summary-spinner');
-  // Clear any error styling left over from a previous failed request so the
-  // normal htmx-indicator behavior (auto show/hide, slate text) resumes.
-  spinner.style.opacity = '';
-  spinner.style.color = '';
-  spinner.textContent = 'Generating summary… [' + label + ']';
+  return sel && sel.value ? sel.options[sel.selectedIndex].text : 'Default';
 }
 
 // Show a red, persistent error in place of the spinner when the AI Summary
 // request fails — a timeout (HAProxy/gunicorn), a server error, or a dropped
 // connection. The htmx-indicator would otherwise just vanish on failure.
-function showSummaryError() {
+function showSummaryError(message) {
   var spinner = document.getElementById('summary-spinner');
-  spinner.textContent = 'ERROR Generating Summary';
+  spinner.textContent = message ? ('Summary failed: ' + message) : 'ERROR Generating Summary';
   spinner.style.color = '#dc2626';  // red-600
   spinner.style.opacity = '1';      // override the indicator auto-hide
+  var status = document.getElementById('summary-live-status');
+  if (status) { status.textContent = 'failed'; }
 }
 
-(function () {
-  var btn = document.getElementById('summary-btn');
-  if (!btn) return;
-  // htmx:responseError → non-2xx (500 worker abort, 502/504 router timeout)
-  // htmx:sendError     → connection dropped (e.g. router closed the socket)
-  // htmx:timeout       → htmx request timeout, if one is configured
-  ['htmx:responseError', 'htmx:sendError', 'htmx:timeout'].forEach(function (evt) {
-    btn.addEventListener(evt, showSummaryError);
+// ── Streamed AI summary (Server-Sent Events) ─────────────────────────────────
+// The blocking endpoint had to finish inside the 300s gunicorn/route timeout,
+// which capped a summary at roughly 26k output tokens and showed nothing at all
+// until it was done. This reads an SSE stream instead: text lands as the model
+// emits it, and the finished pane — download buttons and all — arrives in the
+// final frame, rendered and sanitised server-side.
+var _summaryAbort = null;
+
+function stopSummary() {
+  if (_summaryAbort) { _summaryAbort.abort(); }
+}
+
+function streamSummary() {
+  var pane = document.getElementById('summary-pane');
+  var spinner = document.getElementById('summary-spinner');
+  var stopBtn = document.getElementById('summary-stop');
+
+  // Live region: plain text while streaming, replaced by the rendered pane at
+  // the end. Rendering markdown client-side would put the sanitiser in the
+  // browser, so the server keeps that job.
+  pane.innerHTML =
+    '<div class="bg-white rounded-lg border border-slate-200 shadow-sm mt-6">' +
+      '<div class="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-3">' +
+        '<p class="text-sm font-semibold text-slate-700">AI Summary</p>' +
+        '<span id="summary-live-status" class="text-xs text-slate-400">generating…</span>' +
+      '</div>' +
+      '<pre id="summary-live" class="px-6 py-5 text-sm text-slate-700 whitespace-pre-wrap ' +
+           'font-sans leading-relaxed max-h-[32rem] overflow-y-auto"></pre>' +
+    '</div>';
+
+  var live = document.getElementById('summary-live');
+  var status = document.getElementById('summary-live-status');
+  spinner.style.opacity = '1';
+  spinner.style.color = '';
+  spinner.textContent = 'Streaming summary… [' + summaryTemplateLabel() + ']';
+  stopBtn.classList.remove('hidden');
+
+  var form = new FormData(document.getElementById('report-form'));
+  document.querySelectorAll('#report-preview input[name="selected_ids"]:checked')
+    .forEach(function (cb) { form.append('selected_ids', cb.value); });
+
+  _summaryAbort = new AbortController();
+  var received = 0;
+
+  fetch('{% url "reports:summary-stream" %}', {
+    method: 'POST',
+    body: form,
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    signal: _summaryAbort.signal,
+  }).then(function (resp) {
+    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) { return; }
+        buffer += decoder.decode(r.value, {stream: true});
+        // SSE frames are separated by a blank line.
+        var frames = buffer.split('\n\n');
+        buffer = frames.pop();
+        frames.forEach(function (frame) {
+          var event = 'message', data = '';
+          frame.split('\n').forEach(function (line) {
+            if (line.indexOf('event: ') === 0) { event = line.slice(7); }
+            else if (line.indexOf('data: ') === 0) { data += line.slice(6); }
+          });
+          if (!data) { return; }
+          var payload;
+          try { payload = JSON.parse(data); } catch (e) { return; }
+          handleFrame(event, payload);
+        });
+        return pump();
+      });
+    }
+
+    function handleFrame(event, payload) {
+      if (event === 'delta') {
+        live.textContent += payload.t;
+        received += payload.t.length;
+        status.textContent = 'generating… ' + received.toLocaleString() + ' characters';
+        live.scrollTop = live.scrollHeight;
+      } else if (event === 'done') {
+        pane.innerHTML = payload.html;
+        finish();
+      } else if (event === 'error') {
+        showSummaryError(payload.message);
+        finish(true);
+      }
+    }
+
+    return pump();
+  }).catch(function (err) {
+    if (err.name === 'AbortError') {
+      status.textContent = 'stopped';
+      finish(true);
+      return;
+    }
+    showSummaryError(err.message);
+    finish(true);
   });
-})();
+
+  function finish(failed) {
+    stopBtn.classList.add('hidden');
+    _summaryAbort = null;
+    if (!failed) { spinner.style.opacity = '0'; }
+  }
+}
 
 // ── AI Prompt template selector ───────────────────────────────────────────────
 var _promptLoadUrl = '{% url "reports:prompt-template-load" 0 %}';

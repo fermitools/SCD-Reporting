@@ -18,6 +18,7 @@ The application is designed to work in the Fermilab security environment and wit
 - [Docker Deployment](#docker-deployment)
 - [User Roles](#user-roles)
 - [Email Reminders](#email-reminders)
+- [Streamed AI Summaries](#streamed-ai-summaries)
 - [URL Reference](#url-reference)
 - [Environment Variables](#environment-variables)
 - [API](#api)
@@ -375,6 +376,7 @@ the command-line flags above.
 | `/reports/preview/` | HTMX preview partial (POST) | Auditor+ |
 | `/reports/download/<fmt>/` | Download (txt csv json xlsx pdf) | Auditor+ |
 | `/reports/summary/` | Generate AI summary (POST, HTMX) | Auditor+ |
+| `/reports/summary/stream/` | Generate AI summary as an SSE stream (POST) | Auditor+ |
 | `/reports/summary/download/txt/` | Download AI summary as plain text | Auditor+ |
 | `/reports/summary/download/pdf/` | Download AI summary as PDF | Auditor+ |
 | `/reports/prompt-config/` | Save AI prompt configuration (POST) | Admin |
@@ -450,6 +452,7 @@ the command-line flags above.
 | `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-5` | Model used for report summaries |
 | `ANTHROPIC_MAX_TOKENS` | `24000` | Output ceiling for a generated summary; a truncated summary is flagged in the UI |
 | `ANTHROPIC_MAX_INPUT_TOKENS` | `400000` | Largest prompt the summariser will send; `0` disables the check |
+| `ANTHROPIC_STREAM_MAX_TOKENS` | `40000` | Output ceiling for the streamed summary endpoint; bounded by `GUNICORN_TIMEOUT`, `0` falls back to `ANTHROPIC_MAX_TOKENS` |
 | `ANTHROPIC_BASE_URL` | *(empty)* | Custom API base URL (e.g. LiteLLM proxy) |
 | `GITHUB_APP_ID` | *(empty)* | GitHub App numeric ID for bug report submission |
 | `GITHUB_APP_INSTALLATION_ID` | *(empty)* | GitHub App installation ID |
@@ -497,6 +500,61 @@ See `/api/` in the application for full request/response documentation and examp
 
 - `scripts/scd-post-entry-json` — Python script (reads JSON from file or stdin)
 - `scripts/scd-post-entry-json.sh` — Bash/curl equivalent
+
+---
+
+## Streamed AI Summaries
+
+The **AI Summary** button on the reports page reads a Server-Sent Events stream
+rather than waiting on a single blocking response, so text appears as the model
+emits it and a long summary is not lost to a timeout.
+
+`POST /reports/summary/stream/` takes the same form fields as
+`/reports/summary/` and returns `text/event-stream` with JSON payloads (SSE is
+newline-delimited, so the payloads are JSON-encoded to carry Markdown intact):
+
+| Event | Payload |
+|---|---|
+| `start` | `{"count": n}` — how many entries are being summarised |
+| `delta` | `{"t": "…chunk of Markdown…"}` |
+| `done` | `{"html": "…the finished pane…", "truncated": bool, "output_tokens": n, "max_tokens": n}` |
+| `error` | `{"message": "…"}` |
+
+The finished pane is rendered server-side and shipped in the `done` frame, so
+the nh3 sanitiser stays authoritative — no Markdown rendering or sanitising in
+the browser — and the download buttons come back without a second round trip.
+While streaming, text is shown as plain text; it is replaced by the formatted
+pane when the `done` frame lands.
+
+### Why the ceiling is what it is
+
+Streaming does **not** escape gunicorn's watchdog. Measured directly: a worker
+streaming a 20-second response under `--timeout 5` is reaped mid-stream after
+delivering 6 of 20 frames, and the threaded worker class behaves no better. So
+`GUNICORN_TIMEOUT` is a hard ceiling on any single request, streamed or not.
+
+The usable output length follows from it:
+
+```
+usable tokens ~= (GUNICORN_TIMEOUT - time_to_first_token) x tokens_per_second
+```
+
+Measured through the lab's LiteLLM proxy: **~88 output tokens/second** after a
+**~20 s** wait for the first token. That gives:
+
+| `GUNICORN_TIMEOUT` | Usable output |
+|---|---|
+| 300 s (blocking endpoint) | ~24,000 tokens |
+| 600 s (streaming endpoint) | ~51,000 tokens — set to 40,000 for margin |
+
+Raising `ANTHROPIC_STREAM_MAX_TOKENS` further means raising `GUNICORN_TIMEOUT`
+with it, which also delays reaping a genuinely hung worker — and there are only
+three. Past this point the generation belongs off the request entirely, in a
+background worker that the page polls or is pushed to.
+
+What streaming buys regardless of length: output visible within seconds instead
+of minutes, a **Stop** button that aborts the request, and an `error` frame that
+explains a failure instead of a spinner that silently vanishes.
 
 ---
 

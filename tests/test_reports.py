@@ -664,3 +664,194 @@ class TestDateRangeMatchMode:
         body = client.get(reverse('reports:index')).content
         assert b'name="date_match"' in body
         assert b'Overlapping the range' in body
+
+
+# ── Streamed AI summary over SSE ─────────────────────────────────────────────
+
+class _FakeStreamingAnthropic(_FakeAnthropic):
+    """_FakeAnthropic whose stream also yields text chunks via text_stream."""
+
+    def __init__(self, captured, stop_reason, chunks, **kw):
+        super().__init__(captured, stop_reason, ''.join(chunks), **kw)
+        self._chunks = chunks
+
+    class _Stream:
+        def __init__(self, outer):
+            self._outer = outer
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        @property
+        def text_stream(self):
+            return iter(self._outer._chunks)
+
+        def get_final_message(self):
+            outer = self._outer
+            block = type('Block', (), {'type': 'text', 'text': outer._text})()
+            usage = type('Usage', (), {'input_tokens': 10, 'output_tokens': 20})()
+            return type('Msg', (), {
+                'content': [block], 'stop_reason': outer._stop_reason, 'usage': usage,
+            })()
+
+
+def _sse_frames(response):
+    """Parse an SSE response body into a list of (event, payload) pairs."""
+    body = b''.join(response.streaming_content).decode()
+    out = []
+    for raw in body.split('\n\n'):
+        if not raw.strip():
+            continue
+        event, data = 'message', ''
+        for line in raw.split('\n'):
+            if line.startswith('event: '):
+                event = line[7:]
+            elif line.startswith('data: '):
+                data += line[6:]
+        out.append((event, json.loads(data)))
+    return out
+
+
+class TestSummaryStreaming:
+    """The streamed endpoint exists so a long summary is not bounded by the
+    300s gunicorn/route timeout that caps the blocking one."""
+
+    def _stub(self, monkeypatch, chunks, stop_reason='end_turn'):
+        stub = _FakeStreamingAnthropic({}, stop_reason, chunks)
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+        return stub
+
+    def test_requires_reporter_role(self, client, regular_user):
+        client.force_login(regular_user)
+        assert client.post(reverse('reports:summary-stream'), {}).status_code == 403
+
+    def test_anonymous_is_redirected(self, client, db):
+        assert client.post(reverse('reports:summary-stream'), {}).status_code == 302
+
+    def test_content_type_and_buffering_headers(self, client, admin_user, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        self._stub(monkeypatch, ['ok'])
+        client.force_login(admin_user)
+        resp = client.post(reverse('reports:summary-stream'), {})
+        assert resp['Content-Type'] == 'text/event-stream'
+        assert resp['Cache-Control'] == 'no-cache'
+        # A buffering proxy would deliver the whole stream at once.
+        assert resp['X-Accel-Buffering'] == 'no'
+
+    def test_chunks_arrive_as_delta_frames(self, client, admin_user, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        self._stub(monkeypatch, ['## Over', 'view\n\n', 'body text'])
+        client.force_login(admin_user)
+        frames = _sse_frames(client.post(reverse('reports:summary-stream'), {}))
+
+        events = [e for e, _ in frames]
+        assert events[0] == 'start'
+        assert events.count('delta') == 3
+        assert events[-1] == 'done'
+        streamed = ''.join(p['t'] for e, p in frames if e == 'delta')
+        assert streamed == '## Overview\n\nbody text'
+
+    def test_newlines_survive_the_wire_format(self, client, admin_user, entry, settings, monkeypatch):
+        """SSE is newline-delimited, so payloads are JSON-encoded."""
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        self._stub(monkeypatch, ['line one\nline two\n\nline three'])
+        client.force_login(admin_user)
+        frames = _sse_frames(client.post(reverse('reports:summary-stream'), {}))
+        deltas = [p['t'] for e, p in frames if e == 'delta']
+        assert deltas == ['line one\nline two\n\nline three']
+
+    def test_done_frame_carries_the_rendered_sanitised_pane(self, client, admin_user, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        self._stub(monkeypatch, ['# Head\n\n<img src=x onerror=alert(1)> **safe**'])
+        client.force_login(admin_user)
+        frames = _sse_frames(client.post(reverse('reports:summary-stream'), {}))
+        done = [p for e, p in frames if e == 'done'][0]
+
+        assert '<h1>Head</h1>' in done['html']
+        assert '<strong>safe</strong>' in done['html']
+        assert '<img' not in done['html']          # nh3 still owns sanitising
+        assert 'summary_text' in done['html']      # download forms came back
+        assert done['truncated'] is False
+
+    def test_truncation_reaches_the_done_frame_and_the_pane(self, client, admin_user, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        self._stub(monkeypatch, ['partial'], stop_reason='max_tokens')
+        client.force_login(admin_user)
+        frames = _sse_frames(client.post(reverse('reports:summary-stream'), {}))
+        done = [p for e, p in frames if e == 'done'][0]
+        assert done['truncated'] is True
+        assert 'This summary is incomplete' in done['html']
+
+    def test_no_entries_yields_an_error_frame(self, client, admin_user, db, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        self._stub(monkeypatch, ['unused'])
+        client.force_login(admin_user)
+        frames = _sse_frames(client.post(reverse('reports:summary-stream'), {}))
+        assert frames == [('error', {'message': (
+            'No entries matched. Adjust filters or select rows in the preview first.'
+        )})]
+
+    def test_a_failure_mid_generation_becomes_an_error_frame(self, client, admin_user, entry, settings, monkeypatch):
+        """The browser must be told, not left with a half stream and no reason."""
+        settings.ANTHROPIC_API_KEY = ''      # _prepare raises before any call
+        client.force_login(admin_user)
+        frames = _sse_frames(client.post(reverse('reports:summary-stream'), {}))
+        events = [e for e, _ in frames]
+        assert 'error' in events
+        assert 'ANTHROPIC_API_KEY' in [p['message'] for e, p in frames if e == 'error'][0]
+
+    def test_stream_uses_the_higher_ceiling(self, db, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        settings.ANTHROPIC_MAX_TOKENS = 24000
+        settings.ANTHROPIC_STREAM_MAX_TOKENS = 40000
+        captured = {}
+        stub = _FakeStreamingAnthropic(captured, 'end_turn', ['x'])
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        list(ai_summary.generate_stream(WorkItem.objects.all()))
+        assert captured["max_tokens"] == 40000
+
+    def test_stream_falls_back_to_the_blocking_ceiling_when_unset(self, db, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        settings.ANTHROPIC_MAX_TOKENS = 24000
+        settings.ANTHROPIC_STREAM_MAX_TOKENS = 0
+        captured = {}
+        stub = _FakeStreamingAnthropic(captured, 'end_turn', ['x'])
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        list(ai_summary.generate_stream(WorkItem.objects.all()))
+        assert captured['max_tokens'] == 24000
+
+    def test_generate_stream_ends_with_a_result(self, db, entry, settings, monkeypatch):
+        settings.ANTHROPIC_API_KEY = 'k'
+        settings.ANTHROPIC_MAX_INPUT_TOKENS = 0
+        stub = _FakeStreamingAnthropic({}, 'end_turn', ['a', 'b'])
+        monkeypatch.setattr('anthropic.Anthropic', lambda **kw: stub)
+
+        from apps.reports import ai_summary
+        events = list(ai_summary.generate_stream(WorkItem.objects.all()))
+        assert [k for k, _ in events] == ['delta', 'delta', 'done']
+        assert events[-1][1].text == 'ab'
+
+    def test_blocking_endpoint_still_works(self, client, admin_user, entry, monkeypatch):
+        """The SSE route is additive — the old endpoint stays for scripts."""
+        monkeypatch.setattr(
+            'apps.reports.views.ai_summary.generate',
+            lambda qs, **kw: _summary_result('## Still here'),
+        )
+        client.force_login(admin_user)
+        resp = client.post(reverse('reports:summary'), {})
+        assert resp.status_code == 200
+        assert b'Still here' in resp.content

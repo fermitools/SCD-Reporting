@@ -441,3 +441,26 @@ ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', '').strip() or
 # at a 200k-context model such as Haiku, or the request will be accepted here
 # and rejected by the API.
 ANTHROPIC_MAX_INPUT_TOKENS = int(os.environ.get('ANTHROPIC_MAX_INPUT_TOKENS', '').strip() or 400000)
+
+# Output ceiling for the *streamed* summary endpoint. Streaming pushes text to
+# the browser as it arrives, so the reader is not staring at a blank spinner and
+# the OKD route's inactivity timeout keeps resetting on the flowing data.
+#
+# It does NOT escape gunicorn's watchdog. Measured directly: a worker streaming
+# a 20-second response under `--timeout 5` is reaped mid-stream, delivering 6 of
+# 20 frames — and the threaded worker class fares no better. GUNICORN_TIMEOUT is
+# therefore a hard ceiling on any single request, streamed or not, and this
+# value has to be derived from it:
+#
+#     usable tokens ~= (GUNICORN_TIMEOUT - time_to_first_token) * tokens_per_sec
+#
+# Measured through the lab's LiteLLM proxy: ~88 output tokens/second after a
+# ~20s wait for the first token. At GUNICORN_TIMEOUT=600 that is roughly 51000
+# tokens, so 40000 leaves comfortable margin. Raising this further means raising
+# GUNICORN_TIMEOUT with it — which also delays reaping a genuinely hung worker,
+# and there are only three — or moving generation off the request altogether.
+#
+# Set to 0 to fall back to ANTHROPIC_MAX_TOKENS.
+ANTHROPIC_STREAM_MAX_TOKENS = int(
+    os.environ.get('ANTHROPIC_STREAM_MAX_TOKENS', '').strip() or 40000
+)
