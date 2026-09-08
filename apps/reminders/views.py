@@ -78,6 +78,7 @@ class RecipientListView(ReminderSenderRequiredMixin, View):
             'default_template': ReminderTemplate.objects.filter(is_default=True).first(),
             'min_interval_hours': settings.REMINDER_MIN_INTERVAL_HOURS,
             'base_url_configured': bool(service.base_url()),
+            'mail_caveat': service.configured_caveat(),
         })
 
 
@@ -138,6 +139,14 @@ class SendReminderView(ReminderSenderRequiredMixin, View):
         summary = ', '.join(parts) + '.'
         if result['failed']:
             messages.error(request, summary + ' See the reminder log for details.')
+        elif result['sent'] and result['caveat']:
+            # Don't let a successful handoff to a backend that discards mail
+            # read as a delivery — that is exactly how a silent non-send looks.
+            messages.warning(
+                request,
+                f"{summary} Nothing was actually delivered: {result['caveat']}. "
+                'Configure EMAIL_HOST to send real mail.',
+            )
         elif result['sent']:
             messages.success(request, summary)
         else:

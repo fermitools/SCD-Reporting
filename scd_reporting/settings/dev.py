@@ -10,8 +10,17 @@ SECRET_KEY = 'django-insecure-dev-only-do-not-use-in-production-abc123xyz789'
 
 ALLOWED_HOSTS = ['*']
 
-# Always log emails to console in dev, regardless of EMAIL_HOST
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# Log emails to the console unless an SMTP host is explicitly configured.
+# Setting EMAIL_HOST is the deliberate opt-in to real delivery, and base.py has
+# already selected the SMTP backend in that case; this only covers the default.
+#
+# The condition matters because production currently runs these dev settings:
+# helm/simple has neither whitenoise nor a proxy, so /static/ is served by the
+# `if settings.DEBUG` urlpatterns in scd_reporting/urls.py. An unconditional
+# override here therefore made it impossible for the deployed site to send any
+# mail at all — reminders were rendered and printed into the pod log instead.
+if not os.environ.get('EMAIL_HOST', '').strip():
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 SESSION_COOKIE_SAMESITE = 'Lax'
 

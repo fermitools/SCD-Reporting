@@ -25,6 +25,14 @@
   </div>
   {% endif %}
 
+  {% if mail_caveat %}
+  <div class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3 text-sm">
+    <strong>Email delivery is not configured.</strong> Reminders sent from this page will be
+    {{ mail_caveat }}. Set <code>EMAIL_HOST</code> (and the matching user, password and
+    <code>DEFAULT_FROM_EMAIL</code>) before relying on this.
+  </div>
+  {% endif %}
+
   {# ── Filters ─────────────────────────────────────────────────────────────── #}
   <form method="get" class="bg-white rounded-lg border border-slate-200 shadow-sm px-5 py-4 flex flex-wrap gap-3 items-end">
     <div>

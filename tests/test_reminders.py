@@ -232,6 +232,92 @@ def test_send_delivers_multipart_and_logs(db, group_leader, member_a, template):
     assert log.sent_by == group_leader
 
 
+def test_console_backend_is_recorded_as_not_delivered(db, group_leader, member_a, template):
+    """A handoff to a backend that discards mail must not read as a delivery.
+
+    This is what made a real send look like a silent failure: the dev settings
+    that production runs force the console backend, so the mail was printed into
+    the pod log while the log row said "sent" with no explanation.
+    """
+    mail.outbox.clear()
+    result = service.send_reminders([member_a], template=template, sent_by=group_leader)
+
+    # Under pytest-django the backend is locmem, which discards mail just as
+    # the deployed console backend does.
+    assert result['sent'] == 1
+    assert 'not delivered' in result['caveat']
+    log = ReminderLog.objects.get()
+    assert log.status == ReminderLog.Status.SENT
+    assert 'not delivered' in log.detail
+
+
+def test_console_backend_caveat_names_the_server_log(db, group_leader, member_a, template, settings):
+    settings.EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    result = service.send_reminders([member_a], template=template, sent_by=group_leader)
+    assert 'console backend' in result['caveat']
+    assert 'server log' in ReminderLog.objects.get().detail
+
+
+def test_configured_caveat_reports_the_console_backend(db, settings):
+    settings.EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    assert 'not delivered' in service.configured_caveat()
+
+
+def test_configured_caveat_is_empty_for_smtp(db, settings):
+    settings.EMAIL_BACKEND = 'apps.core.mail.LoggingEmailBackend'
+    assert service.configured_caveat() == ''
+
+
+def test_recipient_page_warns_when_mail_cannot_be_delivered(client, db, group_leader, member_a):
+    client.force_login(group_leader)
+    body = client.get(reverse('reminders:recipients')).content.decode()
+    assert 'Email delivery is not configured' in body
+
+
+def test_send_flash_message_says_nothing_was_delivered(client, db, group_leader, member_a, template):
+    client.force_login(group_leader)
+    resp = client.post(reverse('reminders:send'), {
+        'mode': 'selected', 'recipient_ids': [str(member_a.pk)], 'template': str(template.pk),
+    }, follow=True)
+    text = ' '.join(m.message for m in resp.context['messages'])
+    assert 'Nothing was actually delivered' in text
+
+
+def test_dev_settings_keep_smtp_when_email_host_is_set(monkeypatch):
+    """dev.py must stop forcing the console backend once EMAIL_HOST is configured.
+
+    Production serves /static/ from the DEBUG urlpatterns, so it runs dev
+    settings; an unconditional override there made mail impossible to send.
+    """
+    import importlib
+
+    monkeypatch.setenv('EMAIL_HOST', 'smtp.example.org')
+    import scd_reporting.settings.base as base
+    import scd_reporting.settings.dev as dev
+    # `from .base import *` reuses the already-imported base module, so base has
+    # to be re-executed for its EMAIL_HOST branch to be re-evaluated.
+    importlib.reload(base)
+    reloaded = importlib.reload(dev)
+    try:
+        assert reloaded.EMAIL_BACKEND == 'apps.core.mail.LoggingEmailBackend'
+        assert reloaded.EMAIL_HOST == 'smtp.example.org'
+    finally:
+        monkeypatch.delenv('EMAIL_HOST', raising=False)
+        importlib.reload(base)
+        importlib.reload(dev)
+
+
+def test_dev_settings_default_to_console_without_email_host(monkeypatch):
+    import importlib
+
+    monkeypatch.delenv('EMAIL_HOST', raising=False)
+    import scd_reporting.settings.base as base
+    import scd_reporting.settings.dev as dev
+    importlib.reload(base)
+    reloaded = importlib.reload(dev)
+    assert reloaded.EMAIL_BACKEND == 'django.core.mail.backends.console.EmailBackend'
+
+
 def test_dedupe_window_skips_a_second_send(db, group_leader, member_a, template, settings):
     settings.REMINDER_MIN_INTERVAL_HOURS = 20
     mail.outbox.clear()

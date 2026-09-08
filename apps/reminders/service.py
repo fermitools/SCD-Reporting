@@ -241,6 +241,26 @@ def _recently_reminded(user, hours):
     )
 
 
+# Backends that accept a message and then throw it away. A send through one of
+# these is a successful handoff and nothing more, so the log says so rather than
+# leaving "sent" to imply a delivery that never happened.
+_NON_DELIVERING = {
+    'console': 'console backend — printed to the server log, not delivered',
+    'locmem':  'in-memory backend — not delivered',
+    'dummy':   'dummy backend — discarded, not delivered',
+    'filebased': 'file-based backend — written to disk, not delivered',
+}
+
+
+def delivery_caveat(connection):
+    """Return a note if ``connection`` cannot actually deliver mail, else ''."""
+    module = type(connection).__module__
+    for name, note in _NON_DELIVERING.items():
+        if module.endswith(f'.{name}'):
+            return note
+    return ''
+
+
 def send_reminders(
     recipients,
     template=None,
@@ -277,6 +297,7 @@ def send_reminders(
             sender_name = schedule.name
 
     recipients = list(recipients)[:int(settings.REMINDER_BATCH_SIZE)]
+    caveat = ''
     rows = []
     counts = {'sent': 0, 'skipped': 0, 'failed': 0}
     logs = []
@@ -343,6 +364,9 @@ def send_reminders(
                 ))
             messages = []
         else:
+            caveat = delivery_caveat(connection)
+            if caveat:
+                logger.warning('reminders: %s', caveat)
             for user, facts, subject, message in messages:
                 message.connection = connection
                 try:
@@ -353,9 +377,9 @@ def send_reminders(
                     counts['failed'] += 1
                     status, detail = ReminderLog.Status.FAILED, str(exc)[:500]
                 else:
-                    rows.append((user, 'sent', ''))
+                    rows.append((user, 'sent', caveat))
                     counts['sent'] += 1
-                    status, detail = ReminderLog.Status.SENT, ''
+                    status, detail = ReminderLog.Status.SENT, caveat
                 logs.append(ReminderLog(
                     recipient=user, to_email=user.email, subject=subject, template=template,
                     schedule=schedule, sent_by=sent_by, status=status, detail=detail,
@@ -385,10 +409,19 @@ def send_reminders(
             request=request,
         )
 
-    return {**counts, 'rows': rows, 'template': template}
+    return {**counts, 'rows': rows, 'template': template, 'caveat': caveat}
 
 
 # ── Schedule execution ────────────────────────────────────────────────────────
+
+def configured_caveat():
+    """Delivery caveat for the currently configured backend, without connecting."""
+    from django.core.mail import get_connection
+    try:
+        return delivery_caveat(get_connection())
+    except Exception:  # noqa: BLE001 — a misconfigured backend must not break the page
+        return ''
+
 
 def schedule_recipients(schedule):
     """Recipients for a schedule, resolved from its owner's scope."""
