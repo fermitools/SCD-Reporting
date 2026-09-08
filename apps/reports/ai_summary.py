@@ -85,6 +85,11 @@ def generate(qs, user=None, template=None) -> SummaryResult:
 
     # Refuse an oversized request with an actionable message rather than
     # silently truncating the entries or letting the API reject the call.
+    #
+    # The pre-count is approximate, not a budget. Measured against the lab's
+    # LiteLLM proxy, count_tokens reported ~325k for a request the API then
+    # billed at ~480k input tokens, so the check is deliberately loose: it is
+    # here to catch a runaway input with a readable error, not to police spend.
     limit = int(settings.ANTHROPIC_MAX_INPUT_TOKENS)
     if limit > 0:
         try:
