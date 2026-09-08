@@ -61,7 +61,9 @@ oc rollout restart deployment/web -n scd-reporting
 | `django.initialAdminEmail` | `scd-admin@fnal.gov` | Bootstrap admin email |
 | `django.initialAdminPassword` | *(placeholder)* | Bootstrap admin password — **change before deploying** |
 | `database.url` | `sqlite:////app/data/db.sqlite3` | `DATABASE_URL` connection string |
-| `gunicorn.workers` | `3` | Gunicorn worker count |
+| `gunicorn.workers` | `6` | Gunicorn worker count. Long AI-summary requests hold a worker for their whole duration |
+| `resources.limits.memory` | `640Mi` | Sized for the worker count — ~185 MiB for three workers, ~45 MiB marginal each after |
+| `resources.limits.cpu` | `1000m` | Burst headroom; a throttled worker holds its request open longer |
 | `gunicorn.logLevel` | `info` | Gunicorn log level |
 | `anthropic.apiKey` | `""` | Anthropic (or LiteLLM) API key |
 | `anthropic.summaryModel` | `claude-sonnet-5` | Model for AI report summaries |

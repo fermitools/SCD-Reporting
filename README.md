@@ -556,6 +556,47 @@ What streaming buys regardless of length: output visible within seconds instead
 of minutes, a **Stop** button that aborts the request, and an `error` frame that
 explains a failure instead of a spinner that silently vanishes.
 
+### Worker pool sizing
+
+A summary request holds a gunicorn worker for its whole duration, so raising the
+timeout to 600 s made the pool the next constraint: three workers meant two slow
+summaries left the site serving on one. The chart now runs **six**, with the
+memory limit raised from 512 MiB to 640 MiB to match.
+
+The sizing came from measurement inside the pod: the container's working set is
+~185 MiB with three workers, and while each worker shows ~77 MiB of RSS most of
+that is copy-on-write pages shared with the master, so the marginal cost is
+closer to ~45 MiB per worker. CPU is deliberately generous (the pod idles at
+~2 m) because a throttled worker holds its request open longer.
+
+More workers is the right lever *for this workload specifically*: a summary
+request spends its time waiting on the Anthropic API and barely touches the
+database, so extra workers add concurrency without adding contention.
+
+### The database is the concurrency ceiling, not the pool
+
+The deployment runs **SQLite in `journal_mode=delete`** (the default rollback
+journal) on a **CephFS** volume. In that mode a writer takes an EXCLUSIVE lock
+that blocks every reader for the duration of the write, so past a certain point
+extra workers queue on the database rather than serving requests, and
+`busy_timeout` is 5 s before a request fails with "database is locked".
+
+Nothing has hit that yet — zero occurrences in the logs — so this is a note for
+when write traffic grows, not a present fault. When it does matter, the options
+in order of preference:
+
+1. **Move to PostgreSQL.** The hooks already exist: `DATABASE_URL` is parsed by
+   `dj-database-url`, `psycopg2-binary` is already a dependency, and
+   `helm/compose` ships a database deployment. This is the real fix.
+2. **WAL journal mode**, which lets readers proceed during a write. Note that
+   SQLite documents WAL as unsupported on network filesystems because it needs
+   a memory-mapped `-shm` file, and this volume is CephFS — all the workers are
+   in one pod so they are on one host, which is the condition WAL actually
+   requires, but it should be tested on a copy of the volume before being
+   switched on in production.
+
+Do not raise the worker count much further without doing one of those first.
+
 ---
 
 ## Management Commands

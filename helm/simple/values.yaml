@@ -43,6 +43,18 @@ certManager:
   # This wires the secret into the Route and grants the OKD router RBAC access.
   externalCertificate: false
 
+# ── Container resources ───────────────────────────────────────────────────────
+# Sized for gunicorn.workers above. CPU is generous relative to actual use (the
+# pod idles at ~2m) because gunicorn workers need burst headroom to render, and
+# a throttled worker holds its request open for longer.
+resources:
+  limits:
+    cpu: 1000m
+    memory: 640Mi
+  requests:
+    cpu: 250m
+    memory: 320Mi
+
 pvc:
   sqliteData:
     size: 1Gi
@@ -69,7 +81,16 @@ database:
 
 # ── Gunicorn ───────────────────────────────────────────────────────────────────
 gunicorn:
-  workers: 3
+  # Long AI-summary requests are I/O-bound on the Anthropic API and touch the
+  # database almost not at all, but they hold a worker for their whole duration.
+  # With timeout raised to 600 for streaming, three workers meant two slow
+  # summaries left the site running on one. Six gives room without meaningfully
+  # increasing database contention, because those requests are not what contends.
+  #
+  # Sizing: measured working set is ~185 MiB for three workers, with roughly
+  # 45 MiB marginal per additional worker once pages shared with the master are
+  # discounted — so six fits inside a 640 MiB limit with headroom.
+  workers: 6
   logLevel: info
   # Worker request timeout (seconds). Must exceed the slowest AI-summary
   # generation; the default gunicorn timeout of 30s kills the worker mid-call.
