@@ -83,7 +83,12 @@ anthropic:
   # table row per entry, so this needs to be generous; a summary that still hits
   # the ceiling is flagged as incomplete in the UI rather than passed off as
   # finished.
-  maxTokens: "16000"
+  #
+  # Capped by the 300s gunicorn/route timeout rather than by the model, which
+  # takes up to 128000: at the ~88 output tokens/second measured through the
+  # LiteLLM proxy, about 26000 tokens fit in 300s. Raise gunicorn.timeout and
+  # route.timeout to match before raising this much further.
+  maxTokens: "24000"
   # Largest prompt the summariser will send. Suits a 1M-context model; lower it
   # to ~150000 for a 200k-context model. "0" disables the check.
   maxInputTokens: "400000"

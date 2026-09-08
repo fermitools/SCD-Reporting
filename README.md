@@ -448,7 +448,7 @@ the command-line flags above.
 | `ACCOUNT_EMAIL_VERIFICATION` | `optional` | allauth email verification: `none`, `optional`, `mandatory` |
 | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key; required for AI summary feature |
 | `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-5` | Model used for report summaries |
-| `ANTHROPIC_MAX_TOKENS` | `16000` | Output ceiling for a generated summary; a truncated summary is flagged in the UI |
+| `ANTHROPIC_MAX_TOKENS` | `24000` | Output ceiling for a generated summary; a truncated summary is flagged in the UI |
 | `ANTHROPIC_MAX_INPUT_TOKENS` | `400000` | Largest prompt the summariser will send; `0` disables the check |
 | `ANTHROPIC_BASE_URL` | *(empty)* | Custom API base URL (e.g. LiteLLM proxy) |
 | `GITHUB_APP_ID` | *(empty)* | GitHub App numeric ID for bug report submission |

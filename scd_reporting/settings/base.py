@@ -421,9 +421,15 @@ ANTHROPIC_BASE_URL = os.environ.get('ANTHROPIC_BASE_URL', '')
 # Output ceiling for a generated summary. The default prompt asks for a table
 # row per entry, so a report over a few dozen entries needs far more than the
 # 2048 this used to be pinned at — that ceiling cut summaries off mid-section
-# and the truncation was never reported. The request is streamed, so a large
-# value here does not risk an HTTP timeout.
-ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', '').strip() or 16000)
+# and the truncation was never reported.
+#
+# The binding constraint is not the model, which accepts up to 128k output
+# tokens, but the 300s GUNICORN_TIMEOUT and OKD route timeout: the summary is
+# generated inside a synchronous request. Measured through the lab's LiteLLM
+# proxy the model emits ~88 output tokens/second, so roughly 26k tokens fit in
+# 300s; 24000 leaves margin. Raising this further needs the generation moved off
+# the request — see the SSE streaming work.
+ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', '').strip() or 24000)
 
 # Largest prompt the summariser will send. Exceeding it raises an error naming
 # the entry count and asking for a narrower filter, rather than truncating the
