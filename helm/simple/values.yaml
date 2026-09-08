@@ -81,12 +81,20 @@ anthropic:
   baseUrl: ""
 
 # ── Email (SMTP) ───────────────────────────────────────────────────────────────
+# The lab gateway is smtp.fnal.gov:25. It accepts on-site and OKD-cluster
+# senders without AUTH — leave `user` empty, or Django will try to log in to a
+# server that offers no AUTH mechanism — and it does offer STARTTLS, so the
+# port-derived default encrypts the hop. Set useTls "0" only for a relay that
+# does not offer the extension. Leave host "" to disable sending, which falls
+# back to Django's console backend.
 email:
   host: ""
-  port: "587"
+  port: "25"
   user: ""
   password: ""
-  defaultFrom: "noreply@localhost"
+  defaultFrom: "scd-reporting@fnal.gov"
+  # "" uses the port-derived default (STARTTLS on any port but 465).
+  useTls: ""
 
 # ── Email reminders ────────────────────────────────────────────────────────────
 # Nudges people to file activity reports. The web UI (Reminders → Schedules)

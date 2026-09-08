@@ -32,6 +32,7 @@ data:
   EMAIL_PORT: {{ .Values.email.port | quote }}
   EMAIL_HOST_USER: {{ .Values.email.user | quote }}
   DEFAULT_FROM_EMAIL: {{ .Values.email.defaultFrom | quote }}
+  EMAIL_USE_TLS: {{ .Values.email.useTls | quote }}
   REMINDER_BASE_URL: {{ if .Values.reminders.baseUrl }}{{ .Values.reminders.baseUrl | quote }}{{ else if .Values.route.hostname }}{{ printf "https://%s" .Values.route.hostname | quote }}{{ else }}""{{ end }}
   REMINDER_MIN_INTERVAL_HOURS: {{ .Values.reminders.minIntervalHours | quote }}
   REMINDER_STALE_DAYS: {{ .Values.reminders.staleDays | quote }}

@@ -272,12 +272,23 @@ MFA_WEBAUTHN_ALLOW_INSECURE_ORIGIN = os.environ.get(
 # ── Email ─────────────────────────────────────────────────────────────────────
 # Set EMAIL_HOST to enable SMTP sending.  All settings read from env vars:
 #   EMAIL_HOST          smtp host (required to enable SMTP)
-#   EMAIL_PORT          587 = STARTTLS (default), 465 = implicit SSL
-#   EMAIL_HOST_USER     SMTP username
+#   EMAIL_PORT          25 = unauthenticated relay, 587 = STARTTLS submission
+#                       (default), 465 = implicit SSL
+#   EMAIL_HOST_USER     SMTP username. Leave empty for a relay that offers no
+#                       AUTH — Django only attempts a login when both the
+#                       username and the password are set.
 #   EMAIL_HOST_PASSWORD SMTP password
+#   EMAIL_USE_TLS       "1"/"0" to force STARTTLS on or off, overriding the
+#                       port-derived default. Needed for a relay that does not
+#                       offer the extension, where an unconditional STARTTLS
+#                       fails with SMTPNotSupportedError.
 #   DEFAULT_FROM_EMAIL  sender address shown to recipients
 #   SMTP_DEBUG          set to "1" to enable full SMTP protocol tracing
 #                       (development/diagnostics only — do not use in production)
+#
+# The Fermilab gateway, which is what the OKD deployment uses, is
+# smtp.fnal.gov:25: it accepts on-site and cluster senders without AUTH, and it
+# does offer STARTTLS, so the port-derived default below encrypts the hop.
 _email_host = os.environ.get('EMAIL_HOST', '').strip()
 if _email_host:
     _smtp_debug = os.environ.get('SMTP_DEBUG', '').strip() == '1'
@@ -287,16 +298,23 @@ if _email_host:
         else 'apps.core.mail.LoggingEmailBackend'
     )
     EMAIL_HOST = _email_host
-    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+    # An os.environ default only covers an absent key, and the Helm chart ships
+    # these as empty strings to mean "unset" — int('') would abort the boot.
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '').strip() or '587')
     EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
     EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-    # Port 465 = implicit SSL; anything else = STARTTLS
+    # Port 465 means implicit SSL; every other port negotiates STARTTLS unless
+    # EMAIL_USE_TLS says otherwise.
+    _use_tls_env = os.environ.get('EMAIL_USE_TLS', '').strip().lower()
     if EMAIL_PORT == 465:
         EMAIL_USE_SSL = True
         EMAIL_USE_TLS = False
     else:
         EMAIL_USE_SSL = False
-        EMAIL_USE_TLS = True
+        EMAIL_USE_TLS = (
+            _use_tls_env not in ('0', 'false', 'no', 'off')
+            if _use_tls_env else True
+        )
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
