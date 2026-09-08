@@ -28,6 +28,8 @@ data:
   GUNICORN_LOG_LEVEL: {{ .Values.gunicorn.logLevel | quote }}
   ANTHROPIC_SUMMARY_MODEL: {{ .Values.anthropic.summaryModel | quote }}
   ANTHROPIC_BASE_URL: {{ .Values.anthropic.baseUrl | quote }}
+  ANTHROPIC_MAX_TOKENS: {{ .Values.anthropic.maxTokens | quote }}
+  ANTHROPIC_MAX_INPUT_TOKENS: {{ .Values.anthropic.maxInputTokens | quote }}
   EMAIL_HOST: {{ .Values.email.host | quote }}
   EMAIL_PORT: {{ .Values.email.port | quote }}
   EMAIL_HOST_USER: {{ .Values.email.user | quote }}

@@ -428,4 +428,10 @@ ANTHROPIC_MAX_TOKENS = int(os.environ.get('ANTHROPIC_MAX_TOKENS', '').strip() or
 # Largest prompt the summariser will send. Exceeding it raises an error naming
 # the entry count and asking for a narrower filter, rather than truncating the
 # entries or letting the API reject the request. 0 disables the check.
-ANTHROPIC_MAX_INPUT_TOKENS = int(os.environ.get('ANTHROPIC_MAX_INPUT_TOKENS', '').strip() or 150000)
+#
+# The default suits the 1M-token context of the current Sonnet and Opus models
+# and leaves headroom above a full-history summary — this deployment's 970
+# entries come to roughly 325k input tokens. Lower it to ~150000 when pointing
+# at a 200k-context model such as Haiku, or the request will be accepted here
+# and rejected by the API.
+ANTHROPIC_MAX_INPUT_TOKENS = int(os.environ.get('ANTHROPIC_MAX_INPUT_TOKENS', '').strip() or 400000)

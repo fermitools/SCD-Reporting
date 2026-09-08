@@ -79,6 +79,14 @@ anthropic:
   apiKey: ""
   summaryModel: "claude-sonnet-5"
   baseUrl: ""
+  # Output ceiling for one generated summary. The default prompt asks for a
+  # table row per entry, so this needs to be generous; a summary that still hits
+  # the ceiling is flagged as incomplete in the UI rather than passed off as
+  # finished.
+  maxTokens: "16000"
+  # Largest prompt the summariser will send. Suits a 1M-context model; lower it
+  # to ~150000 for a 200k-context model. "0" disables the check.
+  maxInputTokens: "400000"
 
 # ── Email (SMTP) ───────────────────────────────────────────────────────────────
 # The lab gateway is smtp.fnal.gov:25. It accepts on-site and OKD-cluster

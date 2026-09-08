@@ -438,6 +438,16 @@ class TestSummaryTokenBudget:
         from django.conf import settings
         assert settings.ANTHROPIC_MAX_TOKENS >= 16000
 
+    def test_input_limit_clears_a_full_history_summary(self):
+        """The guard must not refuse what the model can actually accept.
+
+        Production's full non-archived history is ~325k input tokens against a
+        1M-context model, so a limit below that would turn a working (if
+        output-truncated) summary into a hard error.
+        """
+        from django.conf import settings
+        assert settings.ANTHROPIC_MAX_INPUT_TOKENS >= 400000
+
     def test_generate_passes_the_configured_max_tokens_and_streams(self, db, entry, settings, monkeypatch):
         settings.ANTHROPIC_API_KEY = 'test-key'
         settings.ANTHROPIC_MAX_TOKENS = 24000

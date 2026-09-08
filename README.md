@@ -449,7 +449,7 @@ the command-line flags above.
 | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key; required for AI summary feature |
 | `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-5` | Model used for report summaries |
 | `ANTHROPIC_MAX_TOKENS` | `16000` | Output ceiling for a generated summary; a truncated summary is flagged in the UI |
-| `ANTHROPIC_MAX_INPUT_TOKENS` | `150000` | Largest prompt the summariser will send; `0` disables the check |
+| `ANTHROPIC_MAX_INPUT_TOKENS` | `400000` | Largest prompt the summariser will send; `0` disables the check |
 | `ANTHROPIC_BASE_URL` | *(empty)* | Custom API base URL (e.g. LiteLLM proxy) |
 | `GITHUB_APP_ID` | *(empty)* | GitHub App numeric ID for bug report submission |
 | `GITHUB_APP_INSTALLATION_ID` | *(empty)* | GitHub App installation ID |
