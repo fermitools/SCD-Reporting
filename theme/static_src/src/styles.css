@@ -34,6 +34,21 @@
   .md-body th { @apply border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-left; }
   .md-body td { @apply border border-slate-200 px-3 py-1; }
   .md-body a  { @apply text-scd-primary underline; }
+
+  /* Sized multi-select (<select multiple size="N">).
+     Vertical padding on a sized select is added *inside* the scroll viewport, so
+     `py-2` makes the box taller than N option rows and leaves a half-height row
+     visible at the fold — hard to read and hard to click (GitHub #29). Padding is
+     therefore zero on the block axis (Tailwind preflight already sets
+     `padding: 0` on form controls) and moved onto the options, which keeps every
+     row the same height so the viewport is an exact multiple of it. */
+  .scd-multiselect {
+    @apply w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm
+           focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none;
+  }
+  .scd-multiselect option {
+    @apply py-0.5;
+  }
 }
 
 :root {

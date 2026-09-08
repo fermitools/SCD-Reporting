@@ -928,3 +928,49 @@ class TestEntryManagement:
         # post_delete signal fires → audit 'delete' entry is recorded
         entry = AuditLogEntry.objects.filter(action='delete', object_id=pk).first()
         assert entry is not None
+
+
+# ── Sized multi-select styling (GitHub #29) ──────────────────────────────────
+
+class TestMultiSelectStyling:
+    """A sized <select multiple> must be an exact number of option rows tall.
+
+    Vertical padding on a sized select lands inside the scroll viewport, which
+    left a half-height option row clipped at the fold: hard to read, and hard
+    to click. The styling therefore lives in the .scd-multiselect component
+    class, which carries no block padding.
+    """
+
+    MULTI_FIELDS = ('projects', 'categories', 'lab_priorities')
+
+    def test_widgets_use_the_component_class(self, db):
+        from apps.entries.forms import WorkItemForm
+        form = WorkItemForm()
+        for name in self.MULTI_FIELDS:
+            attrs = form.fields[name].widget.attrs
+            assert attrs['class'] == 'scd-multiselect'
+            assert attrs['size'] == 5
+
+    def test_widgets_carry_no_vertical_padding_utility(self, db):
+        from apps.entries.forms import WorkItemForm
+        form = WorkItemForm()
+        for name in self.MULTI_FIELDS:
+            rendered = str(form[name])
+            assert 'py-2' not in rendered
+
+    def test_component_class_has_no_block_padding(self):
+        """The class is defined once in the Tailwind source, without py-*."""
+        from pathlib import Path
+        css = Path('theme/static_src/src/styles.css').read_text()
+        block = css.split('.scd-multiselect {', 1)[1].split('}', 1)[0]
+        assert 'py-' not in block
+        assert 'px-3' in block
+
+    def test_report_page_multi_selects_use_the_component_class(self, client, user, db):
+        """The Reports page selects are sized too, and had the same defect."""
+        from apps.accounts.models import User as UserModel
+        user.role = UserModel.Role.ADMIN
+        user.save(update_fields=['role'])
+        client.force_login(user)
+        body = client.get(reverse('reports:index')).content.decode()
+        assert 'multiple size="4" class="scd-multiselect"' in body

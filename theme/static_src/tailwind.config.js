@@ -3,6 +3,8 @@ module.exports = {
   content: [
     '../../apps/**/templates/**/*.html',
     '../../templates/**/*.html',
+    // Widget attrs in forms.py carry Tailwind class names too.
+    '../../apps/**/*.py',
   ],
   theme: {
     extend: {

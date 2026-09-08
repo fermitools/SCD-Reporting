@@ -409,3 +409,83 @@ class TestMdToPdfTables:
             f'| {"long title text " * 12} | user{i}@example.com |\n' for i in range(60))
         pdf = md_to_pdf(md, 'Summary', 'meta')
         assert pdf.startswith(b'%PDF')
+
+
+# ── Date-range match mode (GitHub #30) ───────────────────────────────────────
+
+class TestDateRangeMatchMode:
+    """The requested window can either contain an entry's period or merely overlap it.
+
+    Adam Lyon's report (#30): a query for 8/15–9/1 missed an entry covering
+    8/1–8/31 because containment is the only comparison the filter offered.
+    """
+
+    @pytest.fixture
+    def entries(self, db, regular_user, project, category):
+        """Four entries around the window 2026-08-15 .. 2026-09-01."""
+        def make(title, start, end):
+            return _new_entry(
+                author=regular_user, title=title, project=project, category=category,
+                period_kind='custom', period_start=start, period_end=end,
+                description='x',
+            )
+        return {
+            'inside':        make('inside',        date(2026, 8, 16), date(2026, 8, 30)),
+            'exact':         make('exact',         date(2026, 8, 15), date(2026, 9, 1)),
+            'straddle_left': make('straddle_left', date(2026, 8, 1),  date(2026, 8, 31)),
+            'straddle_right':make('straddle_right',date(2026, 8, 25), date(2026, 9, 8)),
+            'before':        make('before',        date(2026, 7, 1),  date(2026, 7, 31)),
+            'after':         make('after',         date(2026, 9, 2),  date(2026, 9, 8)),
+        }
+
+    WINDOW = {'period_after': '2026-08-15', 'period_before': '2026-09-01'}
+
+    def _titles(self, client, extra=None):
+        data = dict(self.WINDOW)
+        data.update(extra or {})
+        body = client.post(reverse('reports:preview'), data).content
+        return {name for name in
+                (b'inside', b'exact', b'straddle_left', b'straddle_right', b'before', b'after')
+                if name in body}
+
+    def test_contained_is_the_default(self, client, admin_user, entries):
+        client.force_login(admin_user)
+        assert self._titles(client) == {b'inside', b'exact'}
+
+    def test_contained_can_be_requested_explicitly(self, client, admin_user, entries):
+        client.force_login(admin_user)
+        assert self._titles(client, {'date_match': 'contained'}) == {b'inside', b'exact'}
+
+    def test_overlap_includes_straddling_periods(self, client, admin_user, entries):
+        client.force_login(admin_user)
+        titles = self._titles(client, {'date_match': 'overlap'})
+        assert titles == {b'inside', b'exact', b'straddle_left', b'straddle_right'}
+
+    def test_overlap_still_excludes_disjoint_periods(self, client, admin_user, entries):
+        client.force_login(admin_user)
+        titles = self._titles(client, {'date_match': 'overlap'})
+        assert b'before' not in titles
+        assert b'after' not in titles
+
+    def test_overlap_with_only_a_lower_bound(self, client, admin_user, entries):
+        """One-sided window: everything that had not finished by 2026-08-15."""
+        client.force_login(admin_user)
+        body = client.post(reverse('reports:preview'), {
+            'period_after': '2026-08-15', 'date_match': 'overlap',
+        }).content
+        assert b'straddle_left' in body   # ends 8/31, so still open on 8/15
+        assert b'before' not in body      # ended 7/31
+
+    def test_overlap_with_only_an_upper_bound(self, client, admin_user, entries):
+        client.force_login(admin_user)
+        body = client.post(reverse('reports:preview'), {
+            'period_before': '2026-09-01', 'date_match': 'overlap',
+        }).content
+        assert b'straddle_right' in body  # starts 8/25, so already open on 9/1
+        assert b'after' not in body       # starts 9/2
+
+    def test_mode_selector_is_rendered_on_the_index_page(self, client, admin_user):
+        client.force_login(admin_user)
+        body = client.get(reverse('reports:index')).content
+        assert b'name="date_match"' in body
+        assert b'Overlapping the range' in body

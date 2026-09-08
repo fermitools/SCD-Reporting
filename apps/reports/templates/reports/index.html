@@ -187,9 +187,7 @@
           </div>
           {% else %}
           {# Multi-select limited to managed projects #}
-          <select name="projects" multiple size="4"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
-                         focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          <select name="projects" multiple size="4" class="scd-multiselect">
             {% for p in project_scope %}
             <option value="{{ p.pk }}" {% if p.pk|stringformat:"s" in selp %}selected{% endif %}>{{ p.name }}</option>
             {% endfor %}
@@ -199,9 +197,7 @@
           {% endwith %}
           {% else %}
           {# Full multi-select for auditors/admins/division heads/group leaders #}
-          <select name="projects" multiple size="4"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
-                         focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          <select name="projects" multiple size="4" class="scd-multiselect">
             {% for pk, label in filter.filters.projects.field.choices %}
             <option value="{{ pk }}" {% if pk|stringformat:"s" in selp %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -215,9 +211,7 @@
         <div>
           <label class="block text-xs font-medium text-slate-500 mb-1">Category</label>
           {% with selc=filter.form.categories.value|default_if_none:'' %}
-          <select name="categories" multiple size="4"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
-                         focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          <select name="categories" multiple size="4" class="scd-multiselect">
             {% for pk, label in filter.filters.categories.field.choices %}
             <option value="{{ pk }}" {% if pk|stringformat:"s" in selc %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -245,9 +239,7 @@
         <div>
           <label class="block text-xs font-medium text-slate-500 mb-1">Lab Priority</label>
           {% with sell=filter.form.lab_priorities.value|default_if_none:'' %}
-          <select name="lab_priorities" multiple size="4"
-                  class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
-                         focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          <select name="lab_priorities" multiple size="4" class="scd-multiselect">
             {% for pk, label in filter.filters.lab_priorities.field.choices %}
             <option value="{{ pk }}" {% if pk|stringformat:"s" in sell %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -259,18 +251,36 @@
         {# Period quick-select + date range #}
         <div class="sm:col-span-2 lg:col-span-2 grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Period start on/after</label>
+            <label class="block text-xs font-medium text-slate-500 mb-1">Range start</label>
             <input id="period-after" type="date" name="period_after"
                    value="{{ filter.form.period_after.value|default:'' }}"
                    class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
                           focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 mb-1">Period end on/before</label>
+            <label class="block text-xs font-medium text-slate-500 mb-1">Range end</label>
             <input id="period-before" type="date" name="period_before"
                    value="{{ filter.form.period_before.value|default:'' }}"
                    class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
                           focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          </div>
+          {# How an entry's own period is compared against the range above (GitHub #30) #}
+          <div class="col-span-2">
+            <label for="date-match" class="block text-xs font-medium text-slate-500 mb-1">Match entries</label>
+            <select id="date-match" name="date_match"
+                    class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm
+                           focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+              {% for val, label in filter.form.date_match.field.choices %}
+              <option value="{{ val }}"
+                      {% if filter.form.date_match.value|stringformat:"s" == val|stringformat:"s" %}selected{% endif %}>
+                {{ label }}
+              </option>
+              {% endfor %}
+            </select>
+            <p class="mt-1 text-xs text-slate-400">
+              <span id="date-match-hint-contained">The entry's whole period must fall inside the range.</span>
+              <span id="date-match-hint-overlap" class="hidden">Any entry whose period touches the range is included.</span>
+            </p>
           </div>
           <div class="col-span-2 flex flex-wrap gap-2">
             <button type="button" data-range="7"
@@ -481,6 +491,16 @@
     afterInput.value  = '';
     beforeInput.value = '';
   });
+
+  // Swap the helper text under the date-range match selector (GitHub #30).
+  var matchSelect = document.getElementById('date-match');
+  function syncMatchHint() {
+    var overlap = matchSelect.value === 'overlap';
+    document.getElementById('date-match-hint-overlap').classList.toggle('hidden', !overlap);
+    document.getElementById('date-match-hint-contained').classList.toggle('hidden', overlap);
+  }
+  matchSelect.addEventListener('change', syncMatchHint);
+  syncMatchHint();
 
   document.getElementById('report-form').addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') {

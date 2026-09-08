@@ -50,11 +50,12 @@ class WorkItemForm(forms.ModelForm):
             if hasattr(_val, 'isoformat'):
                 self.initial[_name] = _val.isoformat()
 
-        # Style the multi-select widgets to match the rest of the form.
-        _multi_cls = ('w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm '
-                      'focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none')
+        # Style the multi-select widgets to match the rest of the form. The styling
+        # lives in a component class rather than utility classes because Tailwind
+        # only scans templates for class names, and because a sized select needs
+        # zero block padding to avoid a clipped option row (GitHub #29).
         for _name in ('projects', 'categories', 'lab_priorities'):
-            self.fields[_name].widget.attrs.update({'class': _multi_cls, 'size': 5})
+            self.fields[_name].widget.attrs.update({'class': 'scd-multiselect', 'size': 5})
         if self.instance.pk:
             self.fields['tags_input'].initial = ','.join(
                 self.instance.tags.values_list('name', flat=True)

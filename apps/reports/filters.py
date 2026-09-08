@@ -6,6 +6,15 @@ from django.db.models import Q
 from apps.entries.models import WorkItem
 from apps.taxonomy.models import Category, EntryType, LabPriority, Project, WorkGroup
 
+# How the period_after/period_before window is compared against an entry's own
+# period (GitHub #30).
+DATE_MATCH_CONTAINED = 'contained'
+DATE_MATCH_OVERLAP   = 'overlap'
+DATE_MATCH_CHOICES = [
+    (DATE_MATCH_CONTAINED, 'Entirely within the range'),
+    (DATE_MATCH_OVERLAP,   'Overlapping the range'),
+]
+
 
 class WorkItemFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(
@@ -51,16 +60,19 @@ class WorkItemFilter(django_filters.FilterSet):
         label='Lab Priority',
         conjoined=False,
     )
+    date_match = django_filters.ChoiceFilter(
+        choices=DATE_MATCH_CHOICES,
+        method='filter_noop',
+        label='Match entries',
+        empty_label=None,
+    )
     period_after = django_filters.DateFilter(
-        field_name='period_start',
-        lookup_expr='gte',
-        label='Period start on/after',
-        widget=django_filters.widgets.DateRangeWidget,
+        method='filter_period_after',
+        label='Range start',
     )
     period_before = django_filters.DateFilter(
-        field_name='period_end',
-        lookup_expr='lte',
-        label='Period end on/before',
+        method='filter_period_before',
+        label='Range end',
     )
     is_private      = django_filters.BooleanFilter(label='Private only')
     exclude_private = django_filters.BooleanFilter(
@@ -111,6 +123,35 @@ class WorkItemFilter(django_filters.FilterSet):
             i += 2
 
         return queryset.filter(result)
+
+    def _overlap_mode(self):
+        return (self.data or {}).get('date_match') == DATE_MATCH_OVERLAP
+
+    def filter_period_after(self, queryset, name, value):
+        """Lower bound of the requested window.
+
+        Containment mode (the default) keeps entries that start no earlier than
+        the bound. Overlap mode keeps any entry that has not already finished by
+        then, i.e. period_end >= bound.
+        """
+        if self._overlap_mode():
+            return queryset.filter(period_end__gte=value)
+        return queryset.filter(period_start__gte=value)
+
+    def filter_period_before(self, queryset, name, value):
+        """Upper bound of the requested window.
+
+        Containment mode keeps entries that end no later than the bound. Overlap
+        mode keeps any entry that had already started by then, i.e.
+        period_start <= bound.
+        """
+        if self._overlap_mode():
+            return queryset.filter(period_start__lte=value)
+        return queryset.filter(period_end__lte=value)
+
+    def filter_noop(self, queryset, name, value):
+        """date_match selects how the other date filters behave; it filters nothing itself."""
+        return queryset
 
     def filter_exclude_private(self, queryset, name, value):
         if value:
