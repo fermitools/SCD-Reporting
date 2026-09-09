@@ -305,8 +305,10 @@ from the IdP token to the local User record:
 | `preferred_username` | `user.display_name` (last fallback) |
 | `employee_number` / `employeeNumber` / `employee_id` | `user.employee_id` |
 
-On subsequent logins the display name and employee ID are updated from the latest
-token claims.
+On subsequent logins the display name and employee ID are **backfilled only if
+they are still blank** — a value already on the account (set at an earlier login
+or edited by an administrator) is never overwritten by the IdP. Clear the field
+in the Admin Users page if you want the next login to re-take it from the token.
 
 **Role assignment:** roles are not mapped automatically from IdP claims. An
 administrator must assign roles (`User`, `Administrator`, `Auditor`) through the
