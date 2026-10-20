@@ -50,6 +50,13 @@ oc rollout restart deployment/web -n scd-reporting
 | `certManager.clusterIssuer` | `incommon-acme` | `ClusterIssuer` name |
 | `certManager.secretName` | `scd-reporting-tls` | Secret cert-manager writes the TLS cert into |
 | `certManager.externalCertificate` | `false` | Wire TLS secret into Route + grant router RBAC |
+| `certManager.privateKeyRotationPolicy` | `Always` | New private key on every issuance (see TLS / cert-manager) |
+| `certMonitor.enabled` | `false` | CronJob that checks the served cert (incl. OCSP/CRL revocation) and mails on a problem |
+| `certMonitor.recipients` | `""` | Comma-separated alert addresses; required when enabled |
+| `certMonitor.hosts` | `""` | Comma-separated `host[:port]`; empty means `route.hostname` |
+| `certMonitor.schedule` | `15 */6 * * *` | Check (and, while a problem persists, re-alert) every 6 h |
+| `certMonitor.warnDays` | `21` | Alert when fewer days than this are left |
+| `certMonitor.alertOnUnknown` | `true` | Alert when revocation status cannot be established |
 | `pvc.sqliteData.size` | `1Gi` | PVC size for SQLite database (`/app/data`) |
 | `pvc.media.size` | `1Gi` | PVC size for user uploads (`/app/media`) |
 | `django.settingsModule` | `scd_reporting.settings.dev` | Django settings module |
@@ -191,6 +198,30 @@ so the old certificate is served until the new one is written.
 cert-manager does not check revocation. A revoked certificate stays `Ready=True`
 until `renewalTime`, so a revocation must be handled by hand. This happened on
 2026-10-19 (serial `6F8DC3B8B3402FD29DEDCE3DB5AA77`, reason *superseded*).
+
+### Monitoring
+
+cert-manager does not check revocation, so `certMonitor` runs `manage.py check_cert`
+every 6 hours from inside the cluster. It checks the served certificate's trust,
+name, expiry and revocation. OCSP and CRL answers are believed only once their
+signatures verify. If any check fails, it mails `certMonitor.recipients` and the Job
+fails. The alert repeats on every run until the problem is fixed. Full behaviour is in
+`docs/man/scd-check-cert.1`.
+
+```yaml
+certMonitor:
+  enabled: true
+  recipients: "someone@fnal.gov"
+```
+
+To prove delivery after enabling it, send a test mail from the web pod (same image,
+same SMTP settings), then run the CronJob once as scheduled:
+
+```bash
+oc exec -n scd-reporting deploy/web -- python manage.py check_cert --send-test --to you@fnal.gov
+oc create job cert-monitor-now -n scd-reporting --from=cronjob/scd-reporting-cert-monitor
+oc logs -n scd-reporting -f job/cert-monitor-now && oc delete job -n scd-reporting cert-monitor-now
+```
 
 `certManager.privateKeyRotationPolicy` defaults to `Always`. With `Never`, a forced
 reissue resubmits the previous CSR, and InCommon ACME rejects it with

@@ -14,6 +14,20 @@ For scd-reporting run the project script first; it does every check below:
 ```
 
 Exit 0 good, 1 problem, 2 usage/tool error, 3 reissue incomplete. Details in `man/check-cert.1`.
+
+There is also an unattended monitor: the `scd-reporting-cert-monitor` CronJob runs
+`manage.py check_cert` every 6 h and mails `certMonitor.recipients` on a problem
+(`docs/man/scd-check-cert.1`). It needs no `oc`, and unlike the script it verifies
+OCSP and CRL signatures:
+
+```bash
+venv/bin/python manage.py check_cert --no-email                 # same checks locally
+oc get jobs -n scd-reporting -l job=cert-monitor                # recent runs; Failed = alert raised
+oc logs -n scd-reporting job/<job>                              # the report from a run
+```
+
+If a user reports an alert mail, its body holds the full report. Start from the
+failing check it names.
 If a reissue is needed, use the `cert-reissue` skill.
 
 ## Checking by hand (any host)
