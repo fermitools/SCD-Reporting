@@ -179,6 +179,31 @@ reminders:
     successHistory: 3
     failureHistory: 3
 
+# ── TLS certificate monitor ───────────────────────────────────────────────────
+# CronJob running `manage.py check_cert`: checks trust, name, expiry and
+# OCSP/CRL revocation of the served certificate and mails recipients on a
+# problem. Needs email.host to be set. See docs/man/scd-check-cert.1.
+certMonitor:
+  enabled: false
+  # Comma-separated addresses. Required when enabled.
+  recipients: ""
+  # Comma-separated host[:port] list. Empty means route.hostname.
+  hosts: ""
+  # Alert while a problem persists, on every run. Every 6 hours bounds how
+  # long a revocation goes unnoticed without mailing more than 4 times a day.
+  schedule: "15 */6 * * *"
+  timeZone: "America/Chicago"
+  # Alert when fewer days than this are left. cert-manager renews at 2/3 of
+  # lifetime (about 66 days before expiry for these certs), so this only fires
+  # if renewal has stalled.
+  warnDays: "21"
+  # Alert when revocation status cannot be established (OCSP and CRL both
+  # unreachable or unverifiable).
+  alertOnUnknown: "true"
+  deadlineSeconds: 300
+  successHistory: 3
+  failureHistory: 3
+
 # ── GitHub bug-report integration ─────────────────────────────────────────────
 # Prefer GitHub App credentials (appId + appInstallationId + appPrivateKey).
 # Falls back to a personal access token (token) if App creds are not set.
