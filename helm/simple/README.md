@@ -171,6 +171,31 @@ helm upgrade scd-reporting ./helm/simple -n scd-reporting \
 
 After this, add both flags to `my-values.yaml` for all future upgrades.
 
+### Checking and reissuing
+
+```bash
+./scripts/check-cert.sh            # served cert: SAN, expiry, OCSP/CRL; cluster: Ready, secret serial
+./scripts/check-cert.sh --reissue  # reissue if any check fails (see man/check-cert.1)
+./scripts/check-cert.sh --recreate # reissue by deleting and recreating the Certificate; skips failure backoff
+```
+
+`--reissue` changes the secret's `cert-manager.io/issuer-name` annotation, which makes
+cert-manager reissue. `cmctl renew` doesn't work here: it writes `certificates/status`,
+which namespace users can't do. After a failed issuance, cert-manager waits
+2^(n-1) h (n = failed attempts so far) before retrying, and that wait is stored in
+the Certificate's status. `--recreate` deletes the Certificate and creates it again
+from its own live definition, keeping the Helm metadata, so the new object starts
+with no wait. Neither path changes the certificate data in the secret or the Route,
+so the old certificate is served until the new one is written.
+
+cert-manager does not check revocation. A revoked certificate stays `Ready=True`
+until `renewalTime`, so a revocation must be handled by hand. This happened on
+2026-10-19 (serial `6F8DC3B8B3402FD29DEDCE3DB5AA77`, reason *superseded*).
+
+`certManager.privateKeyRotationPolicy` defaults to `Always`. With `Never`, a forced
+reissue resubmits the previous CSR, and InCommon ACME rejects it with
+`badCSR: ... CSR of an existing certificate order`.
+
 ---
 
 ## Rollback
