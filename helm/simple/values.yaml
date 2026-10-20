@@ -42,6 +42,9 @@ certManager:
   # Set to true only after the Certificate has been issued and the secret exists.
   # This wires the secret into the Route and grants the OKD router RBAC access.
   externalCertificate: false
+  # Always: new private key on every issuance (required for forced reissues
+  # against InCommon ACME, which rejects a repeated CSR).
+  privateKeyRotationPolicy: Always
 
 # ── Container resources ───────────────────────────────────────────────────────
 # Sized for gunicorn.workers above. CPU is generous relative to actual use (the

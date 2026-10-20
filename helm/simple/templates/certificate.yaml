@@ -13,4 +13,9 @@ spec:
     kind: ClusterIssuer
   dnsNames:
     - {{ .Values.route.hostname }}
+  # A fresh key per issuance. With the pre-1.18 default (Never) a forced
+  # reissue resubmits the previous CSR and the InCommon ACME server rejects it
+  # as badCSR "CSR of an existing certificate order".
+  privateKey:
+    rotationPolicy: {{ .Values.certManager.privateKeyRotationPolicy }}
 {{- end }}

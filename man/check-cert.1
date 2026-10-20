@@ -1,0 +1,230 @@
+.TH CHECK-CERT 1 "2026-10-20" "SCD Reporting v02.05" "SCD Reporting"
+.SH NAME
+check-cert \- check the SCD Reporting TLS certificate and reissue it through cert-manager
+.SH SYNOPSIS
+.B ./scripts/check-cert.sh
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B check-cert.sh
+connects to the application hostname, retrieves the certificate chain the OKD
+router is serving, and checks:
+.IP \(bu 2
+that the subjectAltName contains the hostname (a mismatch usually means the
+router is answering with its wildcard default; see the router sharding section
+of
+.BR helm/simple/README.md );
+.IP \(bu 2
+that the certificate has not expired and does not expire within
+.I DAYS
+days;
+.IP \(bu 2
+revocation status, by OCSP against the responder in the Authority Information
+Access extension, falling back to the CRL distribution point;
+.IP \(bu 2
+with cluster access, that the cert-manager
+.B Certificate
+is Ready and that the serial in its TLS secret matches the served serial.
+.PP
+With
+.B \-\-reissue
+a failed check triggers a new issuance. The script changes the
+.B cert-manager.io/issuer-name
+annotation on the TLS secret, which trips cert-manager's issuer-mismatch
+trigger. The old certificate stays in the secret and on the Route until the new
+one is written, so the site keeps serving throughout. This is used in place of
+.B "cmctl renew"
+because that writes the
+.B certificates/status
+subresource, which namespace users cannot do on okdprod.
+.PP
+Before reissuing, the script sets
+.B spec.privateKey.rotationPolicy=Always
+if it is not already set. With a reused key the CSR is identical to the
+previous order and the InCommon ACME server rejects it with
+.BR "badCSR: CSR of an existing certificate order" .
+.PP
+cert-manager holds off 2^(n\-1) hours (maximum 32 h) after the n-th failed
+issuance, and that backoff cannot be cleared without status access. In that case
+.B \-\-reissue
+prints when cert-manager will retry on its own and exits 3.
+.PP
+.B \-\-recreate
+gets around the backoff. cert-manager keeps the failure count and time only in
+the Certificate's
+.BR .status ,
+so a newly created Certificate has none. The script:
+.IP 1. 4
+refuses if the TLS secret has an ownerReference to the Certificate (cert-manager
+started with
+.BR \-\-enable\-certificate\-owner\-ref ),
+because deleting the Certificate would then garbage-collect the secret and the
+Route would lose its certificate;
+.IP 2. 4
+saves the live Certificate as JSON in the backup directory;
+.IP 3. 4
+writes a manifest without status and server-set metadata, keeping the Helm
+labels and
+.B meta.helm.sh/*
+annotations so Helm still owns the object, and with
+.BR rotationPolicy=Always ;
+.IP 4. 4
+validates that manifest, changes the secret's issuer annotation (so the new
+Certificate reissues instead of adopting the certificate already in the secret),
+deletes the Certificate and creates it again.
+.PP
+The secret's certificate data and the Route are never changed, so the old certificate is served until
+the new one is written. CertificateRequest numbering restarts at
+.BR <name>\-1 ,
+and the old requests and ACME orders are garbage-collected with the old Certificate.
+.SH OPTIONS
+.TP
+.BI \-H " HOSTNAME"
+Hostname to check. Default:
+.BR $SCD_HOSTNAME ,
+or
+.BR scd-reporting.fnal.gov .
+.TP
+.BI \-n " NAMESPACE"
+OKD namespace. Default:
+.BR $SCD_NAMESPACE ,
+or
+.BR scd-reporting .
+.TP
+.BI \-c " CERTIFICATE"
+cert-manager Certificate name. Default:
+.BR $SCD_CERT_NAME ,
+or
+.BR scd-reporting .
+.TP
+.BI \-d " DAYS"
+Report a problem if the certificate expires within this many days. Default:
+.BR 21 .
+.TP
+.B \-\-reissue
+Reissue if any check fails, wait for the new certificate, and re-run the checks.
+.TP
+.B \-\-force
+Reissue even if every check passes. Implies
+.BR \-\-reissue .
+.TP
+.B \-\-recreate
+Reissue by deleting and recreating the Certificate object, which clears
+cert-manager's failure backoff (see DESCRIPTION). Implies
+.BR \-\-reissue ;
+combine with
+.B \-\-force
+to recreate when every check passes. Needs
+.BR python3 .
+.TP
+.BI \-b " DIR"
+Directory where
+.B \-\-recreate
+saves the JSON backup of the Certificate. Default:
+.BR $SCD_CERT_BACKUP_DIR ,
+or
+.BR $TMPDIR .
+.TP
+.BI \-w " SECONDS"
+How long to wait for cert-manager to issue. Default:
+.BR 600 .
+.TP
+.B \-\-no-cluster
+Only inspect the served certificate; do not call
+.BR oc .
+Needs no OKD login.
+.TP
+.B \-\-dry-run
+Print the
+.B oc
+commands a reissue would run, without running them.
+.TP
+.B \-h
+Show a short help message and exit.
+.PP
+Command-line options override the environment variables.
+.SH EXIT STATUS
+.TP
+.B 0
+Certificate is good, or a reissue completed and the new certificate is good.
+.TP
+.B 1
+A problem was found (revoked, expired or expiring, wrong name, Certificate not
+Ready, secret and served serial differ).
+.TP
+.B 2
+Usage error, missing tool, or not logged in to OKD.
+.TP
+.B 3
+A reissue was requested but did not complete (failure, timeout, or
+cert-manager backoff).
+.SH ENVIRONMENT
+.TP
+.B SCD_HOSTNAME
+.TQ
+.B SCD_NAMESPACE
+.TQ
+.B SCD_CERT_NAME
+Defaults for
+.BR \-H ,
+.BR \-n ,
+.BR \-c .
+.TP
+.B SCD_CERT_BACKUP_DIR
+Default for
+.BR \-b .
+.SH EXAMPLES
+Check the production certificate:
+.PP
+.RS
+.EX
+\&./scripts/check-cert.sh
+.EE
+.RE
+.PP
+Check and reissue if revoked or expiring:
+.PP
+.RS
+.EX
+\&./scripts/check-cert.sh --reissue
+.EE
+.RE
+.PP
+A reissue failed and cert-manager is in backoff; recreate the Certificate to
+retry now, keeping the backup in the repository's ignored
+.B logs/
+directory:
+.PP
+.RS
+.EX
+\&./scripts/check-cert.sh --recreate -b logs
+.EE
+.RE
+.PP
+Show what a forced recreate would do without changing anything:
+.PP
+.RS
+.EX
+\&./scripts/check-cert.sh --recreate --force --dry-run
+.EE
+.RE
+.PP
+Check from a machine without OKD access, warning 30 days ahead (suitable for cron;
+non-zero exit means action is needed):
+.PP
+.RS
+.EX
+\&./scripts/check-cert.sh --no-cluster -d 30
+.EE
+.RE
+.SH REQUIREMENTS
+.BR bash ,
+.BR openssl ,
+.BR curl ,
+and for cluster checks
+.B oc
+logged in to the cluster. On Windows 11 run it under WSL or Git Bash.
+.SH SEE ALSO
+.BR deploy (1),
+.BR restart-pod (1),
+.BR oc (1),
+.BR openssl-ocsp (1)
