@@ -132,6 +132,105 @@ class TestEntryList:
         # Title should appear once in the table despite matching two tags.
         assert resp.content.decode().count('>Multi tag entry<') == 1
 
+    def test_shows_download_controls(self, client, user, entry):
+        client.force_login(user)
+        body = client.get(reverse('entries:list')).content.decode()
+        assert f'name="selected_ids" value="{entry.pk}"' in body
+        assert reverse('entries:export') in body
+        for fmt in ('txt', 'md', 'csv', 'json', 'xlsx', 'pdf'):
+            assert f'<option value="{fmt}">' in body
+
+
+# ── Export selected ───────────────────────────────────────────────────────────
+
+class TestEntryExport:
+    CONTENT_TYPES = {
+        'txt':  'text/plain',
+        'md':   'text/markdown',
+        'csv':  'text/csv',
+        'json': 'application/json',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'pdf':  'application/pdf',
+    }
+
+    def _make_entry(self, user, project, category, **kwargs):
+        today = date.today()
+        defaults = dict(
+            author=user, project=project, category=category, period_kind='week',
+            period_start=today, period_end=today, description='',
+        )
+        defaults.update(kwargs)
+        return _new_entry(**defaults)
+
+    def _export(self, client, fmt, ids):
+        return client.post(reverse('entries:export'),
+                           {'format': fmt, 'selected_ids': [str(i) for i in ids]})
+
+    @pytest.mark.parametrize('fmt', ['txt', 'md', 'csv', 'json', 'xlsx', 'pdf'])
+    def test_every_format_downloads(self, client, user, entry, fmt):
+        client.force_login(user)
+        resp = self._export(client, fmt, [entry.pk])
+        assert resp.status_code == 200
+        assert resp['Content-Type'].startswith(self.CONTENT_TYPES[fmt])
+        assert resp['Content-Disposition'].startswith('attachment;')
+        assert resp['Content-Disposition'].rstrip('"').endswith(f'.{fmt}')
+
+    def test_only_selected_entries_exported(self, client, user, project, category):
+        a = self._make_entry(user, project, category, title='Alpha entry')
+        self._make_entry(user, project, category, title='Beta entry')
+        c = self._make_entry(user, project, category, title='Gamma entry')
+        client.force_login(user)
+        data = self._export(client, 'json', [a.pk, c.pk]).json()
+        assert sorted(r['title'] for r in data) == ['Alpha entry', 'Gamma entry']
+
+    def test_other_users_and_archived_ids_ignored(self, client, user, project, category):
+        other = User.objects.create_user(username='other3', email='other3@example.com', password='pass')
+        mine = self._make_entry(user, project, category, title='Mine')
+        theirs = self._make_entry(other, project, category, title='Theirs')
+        archived = self._make_entry(user, project, category, title='Archived', is_archived=True)
+        client.force_login(user)
+        data = self._export(client, 'json', [mine.pk, theirs.pk, archived.pk]).json()
+        assert [r['title'] for r in data] == ['Mine']
+
+    def test_only_foreign_ids_redirects_with_error(self, client, user, project, category):
+        other = User.objects.create_user(username='other4', email='other4@example.com', password='pass')
+        theirs = self._make_entry(other, project, category, title='Theirs')
+        client.force_login(user)
+        resp = self._export(client, 'csv', [theirs.pk])
+        assert resp.status_code == 302
+        assert resp.url == reverse('entries:list')
+
+    def test_empty_selection_redirects_with_error(self, client, user, entry):
+        client.force_login(user)
+        resp = client.post(reverse('entries:export'), {'format': 'csv'}, follow=True)
+        assert 'Select at least one entry to download.' in resp.content.decode()
+
+    def test_non_numeric_ids_ignored(self, client, user, entry):
+        client.force_login(user)
+        resp = self._export(client, 'json', [entry.pk, 'abc', '1 OR 1=1'])
+        assert [r['title'] for r in resp.json()] == [entry.title]
+
+    def test_unknown_format_rejected(self, client, user, entry):
+        client.force_login(user)
+        assert self._export(client, 'exe', [entry.pk]).status_code == 400
+
+    def test_get_not_allowed(self, client, user):
+        client.force_login(user)
+        assert client.get(reverse('entries:export')).status_code == 405
+
+    def test_anonymous_redirected(self, client, entry):
+        resp = self._export(client, 'csv', [entry.pk])
+        assert resp.status_code == 302
+        assert 'Content-Disposition' not in resp
+
+    def test_export_is_audited(self, client, user, entry):
+        from apps.audit.models import AuditLogEntry
+        client.force_login(user)
+        self._export(client, 'md', [entry.pk])
+        log = AuditLogEntry.objects.filter(action='export').latest('pk')
+        assert log.actor == user
+        assert log.changes == {'format': 'md', 'count': 1, 'source': 'my-entries'}
+
 
 # ── Create ────────────────────────────────────────────────────────────────────
 

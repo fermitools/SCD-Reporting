@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import F, Q
+from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -10,6 +11,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 
 from apps.accounts.permissions import EntryManagerRequiredMixin
 from apps.core.markdown import render_markdown
+from apps.reports import exporters
 from apps.taxonomy.models import Project, Tag
 
 from .forms import WorkItemForm
@@ -47,7 +49,48 @@ class EntryListView(LoginRequiredMixin, ListView):
         ctx['projects'] = Project.objects.filter(is_active=True).order_by('sort_order', 'name')
         ctx['selected_project'] = self.request.GET.get('project', '')
         ctx['search_query'] = self.request.GET.get('q', '').strip()
+        ctx['export_formats'] = [(fmt, EXPORT_FORMAT_LABELS.get(fmt, fmt.upper()))
+                                 for fmt in exporters.available()]
         return ctx
+
+
+# ── Export selected ───────────────────────────────────────────────────────────
+
+EXPORT_FORMAT_LABELS = {
+    'txt':  'Text (.txt)',
+    'md':   'Markdown (.md)',
+    'csv':  'CSV (.csv)',
+    'json': 'JSON (.json)',
+    'xlsx': 'Excel (.xlsx)',
+    'pdf':  'PDF (.pdf)',
+}
+
+
+class EntryExportView(LoginRequiredMixin, View):
+    """Download the selected entries of the current user in one format.
+
+    The queryset is scoped to the user's own unarchived entries, the same
+    scope as the list, so ids belonging to anyone else are ignored.
+    """
+
+    def post(self, request):
+        fmt = request.POST.get('format', '')
+        exporter = exporters.get(fmt)
+        if not exporter:
+            return HttpResponseBadRequest(f'Unknown format: {fmt}')
+        selected_ids = [i for i in request.POST.getlist('selected_ids') if i.isdigit()]
+        qs = WorkItem.objects.filter(author=request.user, is_archived=False, pk__in=selected_ids)
+        count = qs.count()
+        if not count:
+            messages.error(request, 'Select at least one entry to download.')
+            return redirect('entries:list')
+        from apps.audit.service import log_event
+        log_event(
+            action='export',
+            request=request,
+            changes={'format': fmt, 'count': count, 'source': 'my-entries'},
+        )
+        return exporter(qs)
 
 
 # ── Create ────────────────────────────────────────────────────────────────────

@@ -361,6 +361,7 @@ the command-line flags above.
 | Path | Description | Access |
 |---|---|---|
 | `/entries/` | My entries list | Authenticated |
+| `/entries/export/` | Download selected own entries as txt / md / csv / json / xlsx / pdf (POST) | Authenticated |
 | `/entries/new/` | Create entry | Authenticated |
 | `/entries/<pk>/` | Entry detail | Owner / Group Leader / Auditor / Admin |
 | `/entries/<pk>/edit/` | Edit entry | Owner |

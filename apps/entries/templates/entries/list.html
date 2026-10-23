@@ -43,10 +43,33 @@
   </form>
 
   {% if entries %}
+  <form method="post" action="{% url 'entries:export' %}" id="export-form">
+  {% csrf_token %}
   <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <!-- Download selected -->
+    <div class="flex flex-wrap items-center gap-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-sm">
+      <span class="text-slate-500"><span id="selected-n">0</span> selected</span>
+      <div class="flex items-center gap-2 ml-auto">
+        <label for="export-format" class="text-xs font-medium text-slate-500">Format</label>
+        <select name="format" id="export-format"
+                class="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-scd-primary focus:ring-1 focus:ring-scd-primary focus:outline-none">
+          {% for fmt, label in export_formats %}
+          <option value="{{ fmt }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" id="export-btn" disabled
+                class="px-3 py-1 bg-scd-primary hover:bg-scd-primary-hover text-white text-sm font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          ↓ Download
+        </button>
+      </div>
+    </div>
     <table class="min-w-full divide-y divide-slate-200 text-sm">
       <thead class="bg-slate-50">
         <tr>
+          <th class="px-4 py-3 w-8">
+            <input type="checkbox" id="select-all-entries" title="Select all on this page"
+                   class="h-4 w-4 rounded border-slate-300 text-scd-primary focus:ring-scd-primary cursor-pointer">
+          </th>
           <th class="px-4 py-3 text-left font-semibold text-slate-600">Period</th>
           <th class="px-4 py-3 text-left font-semibold text-slate-600">Title</th>
           <th class="px-4 py-3 text-left font-semibold text-slate-600 hidden sm:table-cell">Project / Category</th>
@@ -56,6 +79,11 @@
       <tbody class="divide-y divide-slate-100">
         {% for entry in entries %}
         <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 w-8">
+            <input type="checkbox" name="selected_ids" value="{{ entry.pk }}"
+                   aria-label="Select {{ entry.title }}"
+                   class="entry-checkbox h-4 w-4 rounded border-slate-300 text-scd-primary focus:ring-scd-primary cursor-pointer">
+          </td>
           <td class="px-4 py-3 text-slate-500 whitespace-nowrap tabular-nums text-xs">
             {{ entry.period_start|date:"M d" }} –<br>{{ entry.period_end|date:"M d, Y" }}
           </td>
@@ -93,6 +121,7 @@
       </tbody>
     </table>
   </div>
+  </form>
 
   <!-- Pagination -->
   {% if is_paginated %}
@@ -129,4 +158,30 @@
   {% endif %}
 
 </div>
+
+{% if entries %}
+<script>
+(function () {
+  var selectAll = document.getElementById('select-all-entries');
+  var countN    = document.getElementById('selected-n');
+  var exportBtn = document.getElementById('export-btn');
+  var boxes     = document.querySelectorAll('.entry-checkbox');
+
+  function updateCount() {
+    var checked = document.querySelectorAll('.entry-checkbox:checked').length;
+    countN.textContent = checked;
+    exportBtn.disabled = checked === 0;
+    selectAll.checked = checked > 0 && checked === boxes.length;
+    selectAll.indeterminate = checked > 0 && checked < boxes.length;
+  }
+
+  selectAll.addEventListener('change', function () {
+    boxes.forEach(function (cb) { cb.checked = selectAll.checked; });
+    updateCount();
+  });
+  boxes.forEach(function (cb) { cb.addEventListener('change', updateCount); });
+  updateCount();
+})();
+</script>
+{% endif %}
 {% endblock %}

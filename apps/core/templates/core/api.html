@@ -201,6 +201,7 @@ curl -s -X POST https://scd-reporting.fnal.gov/api/entries/ \
     </div>
     <div class="divide-y divide-slate-100 text-sm">
       {% include "core/partials/_route_row.html" with method="GET"  path="/entries/"                        badge="login"   desc="List my active work entries (paginated, filterable by project)" %}
+      {% include "core/partials/_route_row.html" with method="POST" path="/entries/export/"                 badge="login"   desc="Download selected own entries (selected_ids, format = txt | md | csv | json | xlsx | pdf)" %}
       {% include "core/partials/_route_row.html" with method="GET"  path="/entries/new/"                    badge="login"   desc="New entry form" %}
       {% include "core/partials/_route_row.html" with method="POST" path="/entries/new/"                    badge="login"   desc="Create a new work entry" %}
       {% include "core/partials/_route_row.html" with method="POST" path="/entries/new/from-summary/"       badge="login"   desc="Pre-fill entry description from an AI summary, then redirect to form" %}
