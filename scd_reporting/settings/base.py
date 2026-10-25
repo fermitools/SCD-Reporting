@@ -361,6 +361,45 @@ REMINDER_SCHEDULER_INTERVAL = appconfig.resolve(
     _reminders_cfg, 'scheduler_interval', 'REMINDER_SCHEDULER_INTERVAL', 60, cast=int,
 )
 
+# ── TLS certificate monitor ───────────────────────────────────────────────────
+# Settings for `manage.py check_cert`, which the cert-monitor CronJob runs to
+# catch revocation, expiry, and name or trust failures and mail an alert. Each
+# resolves as environment variable > config/cert_monitor.yaml > default; the
+# command's flags sit above all of them.
+_cert_monitor_cfg = appconfig.section('cert_monitor.yaml', 'cert_monitor')
+
+
+def _csv(value):
+    """A YAML list, or a comma-separated string, as a list of stripped items."""
+    items = value if isinstance(value, (list, tuple)) else str(value).split(',')
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+# host[:port] entries to check. Defaults to the site's own hostname.
+CERT_MONITOR_HOSTS = appconfig.resolve(
+    _cert_monitor_cfg, 'hosts', 'CERT_MONITOR_HOSTS',
+    _csv(os.environ.get('SCD_HOSTNAME', '')), cast=_csv,
+)
+# Who gets the alert. Empty means the check still runs and fails the Job, but
+# nobody is mailed.
+CERT_MONITOR_RECIPIENTS = appconfig.resolve(
+    _cert_monitor_cfg, 'recipients', 'CERT_MONITOR_RECIPIENTS', [], cast=_csv,
+)
+# Alert when a certificate has fewer days left than this.
+CERT_MONITOR_WARN_DAYS = appconfig.resolve(
+    _cert_monitor_cfg, 'warn_days', 'CERT_MONITOR_WARN_DAYS', 21, cast=int,
+)
+# Per-request network timeout, seconds.
+CERT_MONITOR_TIMEOUT = appconfig.resolve(
+    _cert_monitor_cfg, 'timeout', 'CERT_MONITOR_TIMEOUT', 15, cast=int,
+)
+# Also alert when revocation status cannot be established (OCSP and CRL both
+# unreachable or unverifiable). A monitor that cannot see is reported, not
+# assumed healthy.
+CERT_MONITOR_ALERT_ON_UNKNOWN = appconfig.resolve(
+    _cert_monitor_cfg, 'alert_on_unknown', 'CERT_MONITOR_ALERT_ON_UNKNOWN', True, cast=bool,
+)
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 _LOG_DIR = BASE_DIR / 'logs'
 _LOG_DIR.mkdir(exist_ok=True)

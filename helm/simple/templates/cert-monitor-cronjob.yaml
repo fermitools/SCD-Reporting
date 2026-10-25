@@ -1,0 +1,82 @@
+{{- if .Values.certMonitor.enabled }}
+{{- if not .Values.certMonitor.recipients }}
+{{- fail "certMonitor.enabled is true but certMonitor.recipients is empty — alerts would go nowhere. Set certMonitor.recipients (comma-separated) or disable the monitor." }}
+{{- end }}
+{{- $hosts := .Values.certMonitor.hosts | default .Values.route.hostname }}
+{{- if not $hosts }}
+{{- fail "certMonitor.enabled is true but neither certMonitor.hosts nor route.hostname is set — nothing to check." }}
+{{- end }}
+{{- /*
+Checks the site's TLS certificate (trust, name, expiry, OCSP/CRL revocation) and
+mails certMonitor.recipients when something is wrong. cert-manager does not
+check revocation, so without this a revoked certificate stays Ready=True and is
+served until its renewal time (2026-10-19 incident).
+
+It runs from outside the router, the way a browser sees the site, so it also
+catches the router serving its wildcard default instead of the Route's
+certificate.
+
+A problem mails the alert and fails the Job (exit 1), so it also appears in
+`oc get jobs`. A Job that fails without a mail (exit 2) means the alert could
+not be delivered; check its log.
+
+No database access, so unlike the reminders job it does not mount the SQLite PVC
+and can run on any node.
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-cert-monitor
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "scd-reporting-simple.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.certMonitor.schedule | quote }}
+  timeZone: {{ .Values.certMonitor.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.certMonitor.successHistory }}
+  failedJobsHistoryLimit: {{ .Values.certMonitor.failureHistory }}
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.certMonitor.deadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "scd-reporting-simple.selectorLabels" . | nindent 12 }}
+            job: cert-monitor
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: check-cert
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - python
+                - manage.py
+                - check_cert
+              resources:
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+              envFrom:
+                - configMapRef:
+                    name: {{ .Release.Name }}-config
+                - secretRef:
+                    name: {{ .Release.Name }}-secret
+              env:
+                - name: REMINDER_SCHEDULER_ENABLED
+                  value: "0"
+                - name: CERT_MONITOR_HOSTS
+                  value: {{ $hosts | quote }}
+                - name: CERT_MONITOR_RECIPIENTS
+                  value: {{ .Values.certMonitor.recipients | quote }}
+                - name: CERT_MONITOR_WARN_DAYS
+                  value: {{ .Values.certMonitor.warnDays | quote }}
+                - name: CERT_MONITOR_ALERT_ON_UNKNOWN
+                  value: {{ .Values.certMonitor.alertOnUnknown | quote }}
+{{- end }}

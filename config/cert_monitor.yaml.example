@@ -1,0 +1,36 @@
+# TLS certificate monitor — operational settings for `manage.py check_cert`.
+#
+# Copy to config/cert_monitor.yaml and edit. Every key can be overridden by the
+# environment variable named in its comment, and the check_cert management
+# command's flags override both:
+#
+#     command line  >  environment  >  .env  >  this file  >  built-in default
+#
+# On OKD these come from the certMonitor block of the Helm values instead; see
+# helm/simple/values.yaml.
+
+cert_monitor:
+  # host or host:port to check (port defaults to 443). A YAML list or a
+  # comma-separated string. Defaults to $SCD_HOSTNAME.
+  #   env: CERT_MONITOR_HOSTS
+  hosts:
+    - scd-reporting.fnal.gov
+
+  # Where alerts are mailed. A YAML list or a comma-separated string. Empty means
+  # nobody is mailed; the command still exits non-zero on a problem.
+  #   env: CERT_MONITOR_RECIPIENTS
+  recipients:
+    - someone@fnal.gov
+
+  # Alert when a certificate has fewer days than this left.
+  #   env: CERT_MONITOR_WARN_DAYS
+  warn_days: 21
+
+  # Network timeout per request, seconds.
+  #   env: CERT_MONITOR_TIMEOUT
+  timeout: 15
+
+  # Also alert when revocation status cannot be established (OCSP and CRL both
+  # unreachable, or their signatures do not verify).
+  #   env: CERT_MONITOR_ALERT_ON_UNKNOWN
+  alert_on_unknown: true

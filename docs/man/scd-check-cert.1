@@ -1,0 +1,245 @@
+.\" Man page for the check_cert Django management command
+.\" scd-check-cert(1)
+.TH SCD\-CHECK\-CERT 1 "2026-10-20" "SCD Effort Reporting" "SCD Effort Reporting Commands"
+.SH NAME
+scd\-check\-cert \- monitor TLS certificates for revocation, expiry and trust failures, and mail an alert
+.SH SYNOPSIS
+.B python manage.py check_cert
+[\fB\-\-host\fR \fIHOST\fR[:\fIPORT\fR]]...
+[\fB\-\-to\fR \fIEMAIL\fR]...
+[\fB\-\-warn\-days\fR \fIDAYS\fR]
+[\fB\-\-timeout\fR \fISECONDS\fR]
+[\fB\-\-alert\-on\-unknown\fR | \fB\-\-ignore\-unknown\fR]
+[\fB\-\-no\-email\fR]
+[\fB\-\-dry\-run\fR]
+[\fB\-\-send\-test\fR]
+.SH DESCRIPTION
+.B check_cert
+connects to each host the way a browser does, takes the certificate it is
+served, and runs five checks:
+.TP 12
+.B connect
+A TLS handshake completes.
+.TP
+.B trust
+The chain, hostname included, verifies against the system CA bundle.
+.TP
+.B name
+The subjectAltName covers the host. A wildcard covers exactly one leftmost
+label. A failure here together with an OKD wildcard issuer means the router is
+serving its default certificate rather than the Route's.
+.TP
+.B expiry
+The certificate is valid now and has at least
+.I DAYS
+days left.
+.TP
+.B revocation
+The issuing CA is downloaded from the certificate's AIA CA Issuers URL and
+confirmed to have signed the leaf. OCSP is asked first. If OCSP gives no
+usable answer, the CRL is fetched and searched for the serial.
+.PP
+Each check ends
+.BR OK ,
+.B PROBLEM
+or
+.BR UNKNOWN .
+.B UNKNOWN
+means the answer could not be established, for example both OCSP and the CRL
+unreachable.
+.PP
+The command runs unattended, so it trusts revocation data only after checking
+its signature:
+.IP \(bu 2
+An OCSP response must be signed by the issuing CA, or by a responder certificate
+the CA issued with the OCSPSigning extended key usage (RFC 6960 \(sc4.2.2.2).
+.IP \(bu 2
+A CRL must be signed by the issuing CA.
+.IP \(bu 2
+Stale responses and CRLs (past their next-update time) are ignored.
+.PP
+A forged or stale "good" therefore cannot hide a revocation.
+.PP
+If any host is
+.BR PROBLEM ,
+or
+.B UNKNOWN
+while unknowns alert, one mail goes to the recipients with the full report and
+the remediation commands. The subject line names the host and the first failing
+check, for example:
+.PP
+.RS
+.EX
+[SCD Reporting] TLS certificate PROBLEM: scd\-reporting.fnal.gov \(em
+revocation: REVOKED at 2026\-10\-19 14:34:14 UTC, reason superseded (OCSP ...)
+.EE
+.RE
+.PP
+Mail goes through the application's normal SMTP settings
+.RB ( EMAIL_HOST ", " EMAIL_PORT ", ...)"
+from
+.BR DEFAULT_FROM_EMAIL .
+The command does not touch the database.
+.PP
+This is the unattended counterpart of
+.BR check\-cert (1),
+which an operator runs with
+.B oc
+access to look at, and reissue, the cert-manager side.
+.SH OPTIONS
+Each option overrides the corresponding environment variable, which in turn
+overrides
+.IR config/cert_monitor.yaml :
+.PP
+.RS
+command line > environment > .env > config/cert_monitor.yaml > default
+.RE
+.TP
+.BI \-\-host " HOST" \fR[:\fIPORT\fR]
+Host to check; repeat for several. Port defaults to 443.
+Overrides
+.BR CERT_MONITOR_HOSTS ,
+which defaults to
+.BR SCD_HOSTNAME .
+.TP
+.BI \-\-to " EMAIL"
+Alert recipient; repeat for several. Overrides
+.BR CERT_MONITOR_RECIPIENTS .
+.TP
+.BI \-\-warn\-days " DAYS"
+Alert when fewer days than this are left. Overrides
+.BR CERT_MONITOR_WARN_DAYS .
+Default 21.
+.TP
+.BI \-\-timeout " SECONDS"
+Network timeout per request. Overrides
+.BR CERT_MONITOR_TIMEOUT .
+Default 15.
+.TP
+.BR \-\-alert\-on\-unknown ", " \-\-ignore\-unknown
+Whether an
+.B UNKNOWN
+revocation status raises an alert. Overrides
+.BR CERT_MONITOR_ALERT_ON_UNKNOWN .
+Default: alert.
+.TP
+.B \-\-no\-email
+Report on standard output only.
+.TP
+.B \-\-dry\-run
+Print the mail that would be sent instead of sending it.
+.TP
+.B \-\-send\-test
+Send the report mail even when every check passes, to prove that delivery
+works end to end.
+.SH EXIT STATUS
+.TP
+.B 0
+Nothing to alert on.
+.TP
+.B 1
+An alert was raised, and mailed unless
+.B \-\-no\-email
+or
+.B \-\-dry\-run
+was given.
+.TP
+.B 2
+An alert was needed but could not be delivered (no recipients, or SMTP
+failed), or there were no hosts to check.
+.PP
+In the CronJob, a non-zero exit marks the Job
+.BR Failed ,
+so a problem is visible in
+.B oc get jobs
+even if the mail is lost.
+.SH ENVIRONMENT
+.TP
+.B CERT_MONITOR_HOSTS
+Comma-separated host[:port] list.
+.TP
+.B CERT_MONITOR_RECIPIENTS
+Comma-separated addresses.
+.TP
+.B CERT_MONITOR_WARN_DAYS
+.TQ
+.B CERT_MONITOR_TIMEOUT
+.TQ
+.B CERT_MONITOR_ALERT_ON_UNKNOWN
+See OPTIONS.
+.TP
+.B SCD_CONFIG_DIR
+Directory holding
+.IR cert_monitor.yaml .
+Default
+.IR config/ .
+.SH DEPLOYMENT
+On OKD the Helm chart runs the command from the
+.B <release>\-cert\-monitor
+CronJob. In
+.IR my\-values.yaml :
+.PP
+.RS
+.EX
+certMonitor:
+  enabled: true
+  recipients: "someone@fnal.gov,other@fnal.gov"
+  # hosts: ""                  # default: route.hostname
+  # schedule: "15 */6 * * *"   # America/Chicago
+.EE
+.RE
+.PP
+The chart refuses to render when the monitor is enabled with no recipients.
+While a problem persists the alert repeats on every run, so the schedule also
+sets how often it repeats.
+.SH EXAMPLES
+Check the site and print the report, sending nothing:
+.PP
+.RS
+.EX
+python manage.py check_cert \-\-no\-email
+.EE
+.RE
+.PP
+Prove that alert mail reaches you, from inside the cluster. The web pod runs the
+same image with the same SMTP settings; the recipients are only in the CronJob,
+so name one.
+.RB ( "oc create job \-\-from=cronjob/..."
+cannot override the command.)
+.PP
+.RS
+.EX
+oc exec \-n scd\-reporting deploy/web \-\- \e
+  python manage.py check_cert \-\-send\-test \-\-to you@fnal.gov
+.EE
+.RE
+.PP
+Run the CronJob once now, exactly as scheduled (mails only on a problem):
+.PP
+.RS
+.EX
+oc create job cert\-monitor\-now \-n scd\-reporting \e
+  \-\-from=cronjob/scd\-reporting\-cert\-monitor
+oc logs \-n scd\-reporting \-f job/cert\-monitor\-now
+oc delete job \-n scd\-reporting cert\-monitor\-now
+.EE
+.RE
+.PP
+See the mail a revoked certificate would produce, against a public test host:
+.PP
+.RS
+.EX
+python manage.py check_cert \-\-host revoked.badssl.com \e
+  \-\-to you@fnal.gov \-\-dry\-run
+.EE
+.RE
+.SH SEE ALSO
+.BR check\-cert (1),
+.BR scd\-send\-reminders (1),
+.BR restart\-pod (1)
+.PP
+.I helm/simple/README.md
+(TLS / cert-manager),
+.I config/cert_monitor.yaml.example
+.SH AUTHOR
+Fermilab Scientific Computing Division.
