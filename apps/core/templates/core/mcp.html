@@ -53,7 +53,7 @@
       <h2 class="text-base font-semibold text-slate-900">1. Get the client files</h2>
     </div>
     <div class="px-6 py-4 space-y-3 text-sm text-slate-700">
-      <p>The MCP server and the command-line tools are in the <code class="font-mono bg-slate-100 px-1 rounded">scripts/</code> directory of the project repository. Keep <code class="font-mono bg-slate-100 px-1 rounded">scd-mcp</code>, <code class="font-mono bg-slate-100 px-1 rounded">scd_mcp.py</code> and <code class="font-mono bg-slate-100 px-1 rounded">scd_client.py</code> together.</p>
+      <p>The MCP server and the command-line tools are in the <code class="font-mono bg-slate-100 px-1 rounded">scripts/</code> directory of the project repository. You will need to checkout the latest version of the repository.  Then make sure to keep <code class="font-mono bg-slate-100 px-1 rounded">scd-mcp</code>, <code class="font-mono bg-slate-100 px-1 rounded">scd_mcp.py</code> and <code class="font-mono bg-slate-100 px-1 rounded">scd_client.py</code> together.</p>
       <div class="snippet"><pre id="mcp-clone">git clone {{ repo_url }}.git ~/SCD-Reporting</pre><button type="button" class="copy-btn" data-copy-target="mcp-clone">Copy</button></div>
     </div>
   </section>
@@ -64,14 +64,14 @@
       <h2 class="text-base font-semibold text-slate-900">2. Save the server URL and your token</h2>
     </div>
     <div class="px-6 py-4 space-y-3 text-sm text-slate-700">
-      <p>The MCP server reads the same settings as the <code class="font-mono bg-slate-100 px-1 rounded">scd-*</code> command-line tools. Put the token in its own file so it never appears in a client configuration file.</p>
+      <p>You will need an API token to authenticate with the MCP server. Get this by clicking on your name in the scd-reporting interface and then generating a new token.  Copy it to the clipboard.  The MCP server reads the same settings as the <code class="font-mono bg-slate-100 px-1 rounded">scd-*</code> command-line tools.  For security reasons put the token in a client configuration file which will be used by the MCP server.</p>
       <p class="font-medium text-slate-800">Linux and macOS</p>
       <div class="snippet"><pre id="mcp-config-unix">mkdir -p ~/.config/scd-reporting
 cat &gt; ~/.config/scd-reporting/config.yaml &lt;&lt;'EOF'
 url: {{ site_url }}
 token_file: ~/.config/scd-reporting/token
 EOF
-read -rs -p "Paste API token: " T &amp;&amp; printf '%s\n' "$T" &gt; ~/.config/scd-reporting/token &amp;&amp; unset T
+echo -n "Paste API token: " &amp;&amp; read -rs T &amp;&amp; printf '%s\n' "$T" &gt; ~/.config/scd-reporting/token &amp;&amp; unset T
 chmod 600 ~/.config/scd-reporting/token</pre><button type="button" class="copy-btn" data-copy-target="mcp-config-unix">Copy</button></div>
       <p class="font-medium text-slate-800">Windows 11 (PowerShell)</p>
       <div class="snippet"><pre id="mcp-config-win">$d = "$HOME\.config\scd-reporting"; New-Item -ItemType Directory -Force $d | Out-Null
