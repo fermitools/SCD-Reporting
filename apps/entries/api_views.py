@@ -2,13 +2,13 @@ import json
 from datetime import date
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.http import JsonResponse
-from django.utils import timezone
-from django.utils.decorators import method_decorator
-from django.views import View
-from django.views.decorators.csrf import csrf_exempt
+from django.urls import reverse
 
+from apps.core.api_auth import TokenAPIView, authenticate_token
+from apps.core.api_params import ParamError, int_param, request_params, resolve_taxonomy
+from apps.reports import exporters
 from apps.taxonomy.models import Category, LabPriority, Project, Tag, WorkGroup
 
 from .models import WorkItem
@@ -18,20 +18,9 @@ def _json_error(message, status=400):
     return JsonResponse({'error': message}, status=status)
 
 
-def _authenticate_token(request):
-    """Return the User for a valid Bearer token, or None."""
-    auth = request.META.get('HTTP_AUTHORIZATION', '')
-    if not auth.startswith('Bearer '):
-        return None
-    key = auth[len('Bearer '):].strip()
-    from apps.accounts.models import APIToken
-    try:
-        token = APIToken.objects.select_related('user').get(key=key)
-        token.last_used_at = timezone.now()
-        token.save(update_fields=['last_used_at'])
-        return token.user
-    except APIToken.DoesNotExist:
-        return None
+# Kept for any external import of the old name; the shared helper also rejects
+# tokens that belong to deactivated users.
+_authenticate_token = authenticate_token
 
 
 def _resolve_fk(model, value, allow_blank=False):
@@ -93,15 +82,14 @@ def _coerce_int(val, default=0, lo=0, hi=5):
         return default
 
 
-@method_decorator(csrf_exempt, name='dispatch')
-class EntryCreateAPIView(View):
-    """POST /api/entries/ — create a work entry; returns JSON."""
+class EntryCreateAPIView(TokenAPIView):
+    """GET /api/entries/ — list the caller's entries; POST — create one."""
+
+    def get(self, request):
+        return entry_list(request)
 
     def post(self, request):
-        user = _authenticate_token(request)
-        if user is None:
-            return JsonResponse({'error': 'Valid Bearer token required.'}, status=401)
-
+        user = request.user
         try:
             data = json.loads(request.body)
         except (ValueError, TypeError):
@@ -199,7 +187,6 @@ class EntryCreateAPIView(View):
                 if tags:
                     entry.tags.set(tags)
 
-        from django.urls import reverse
         project_slugs = [p.slug for p in projects]
         category_slugs = [c.slug for c in categories]
         return JsonResponse({
@@ -215,3 +202,158 @@ class EntryCreateAPIView(View):
             'period_end': entry.period_end.isoformat(),
             'url': request.build_absolute_uri(reverse('entries:detail', kwargs={'pk': entry.pk})),
         }, status=201)
+
+
+# ── Read API ──────────────────────────────────────────────────────────────────
+
+ENTRY_LIST_MAX = 1000
+
+
+def _ref(obj):
+    return {'id': obj.pk, 'slug': obj.slug, 'name': obj.name} if obj else None
+
+
+def serialize_entry(item, request):
+    return {
+        'id': item.pk,
+        'title': item.title,
+        'description': item.description,
+        'author': {
+            'email': item.author.email,
+            'display_name': item.author.display_name or '',
+        },
+        'projects': [_ref(p) for p in item.projects.all()],
+        'categories': [_ref(c) for c in item.categories.all()],
+        'lab_priorities': [_ref(lp) for lp in item.lab_priorities.all()],
+        'entry_type': _ref(item.entry_type),
+        'group': _ref(item.group),
+        'tags': sorted(t.name for t in item.tags.all()),
+        'period_kind': item.period_kind,
+        'period_start': item.period_start.isoformat(),
+        'period_end': item.period_end.isoformat(),
+        'is_private': item.is_private,
+        'is_critical': item.is_critical,
+        'is_highlight': item.is_highlight,
+        'highlight_stars': item.highlight_stars,
+        'is_division_head_only': item.is_division_head_only,
+        'is_archived': item.is_archived,
+        'created_at': item.created_at.isoformat(),
+        'updated_at': item.updated_at.isoformat(),
+        'url': request.build_absolute_uri(reverse('entries:detail', kwargs={'pk': item.pk})),
+    }
+
+
+def _entry_qs():
+    return (WorkItem.objects
+            .select_related('author', 'entry_type', 'group')
+            .prefetch_related('projects', 'categories', 'lab_priorities', 'tags'))
+
+
+def _date_param(params, key):
+    raw = params.get(key, '').strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        raise ParamError({key: 'Date must be YYYY-MM-DD.'})
+
+
+def _export(request, qs, fmt, source):
+    exporter = exporters.get(fmt)
+    if exporter is None:
+        raise ParamError({'format': f'Unknown format "{fmt}". '
+                                    f'Available: json, {", ".join(exporters.available())}.'})
+    from apps.audit.service import log_event
+    log_event(action='export', actor=request.user, request=request,
+              changes={'format': fmt, 'count': qs.count(), 'source': source})
+    return exporter(qs)
+
+
+def entry_list(request):
+    """The caller's own entries (the "My Entries" scope), filtered and paged.
+
+    ``format=json`` (default) returns one page; any exporter format returns the
+    whole filtered set as a file, ignoring limit/offset.
+    """
+    try:
+        params = request_params(request)
+        for alias, canonical in (('project', 'projects'), ('category', 'categories')):
+            if alias in params:
+                params.setlist(canonical, params.getlist(canonical) + params.getlist(alias))
+        resolve_taxonomy(params, {'projects': Project, 'categories': Category})
+        after = _date_param(params, 'period_after')
+        before = _date_param(params, 'period_before')
+        limit = int_param(params, 'limit', 100, 1, ENTRY_LIST_MAX)
+        offset = int_param(params, 'offset', 0, 0, 10 ** 9)
+        archived = params.get('archived', '0').strip().lower()
+        if archived not in ('0', '1', 'all', 'false', 'true'):
+            raise ParamError({'archived': 'Must be 0, 1 or all.'})
+        fmt = (params.get('format') or 'json').lower()
+
+        qs = _entry_qs().filter(author=request.user)
+        if archived in ('0', 'false'):
+            qs = qs.filter(is_archived=False)
+        elif archived in ('1', 'true'):
+            qs = qs.filter(is_archived=True)
+        distinct = False
+        if params.getlist('projects'):
+            qs = qs.filter(projects__pk__in=params.getlist('projects'))
+            distinct = True
+        if params.getlist('categories'):
+            qs = qs.filter(categories__pk__in=params.getlist('categories'))
+            distinct = True
+        q = params.get('q', '').strip()
+        if q:
+            qs = qs.filter(Q(title__icontains=q) | Q(description__icontains=q)
+                           | Q(tags__name__icontains=q))
+            distinct = True
+        # Overlap semantics: any entry whose period touches [after, before].
+        if after:
+            qs = qs.filter(period_end__gte=after)
+        if before:
+            qs = qs.filter(period_start__lte=before)
+        if distinct:
+            qs = qs.distinct()
+        qs = qs.order_by('-period_end', '-pk')
+
+        if fmt != 'json':
+            return _export(request, qs, fmt, 'api-entries')
+    except ParamError as exc:
+        return JsonResponse({'errors': exc.errors}, status=400)
+
+    total = qs.count()
+    page = qs[offset:offset + limit]
+    return JsonResponse({
+        'count': total,
+        'limit': limit,
+        'offset': offset,
+        'results': [serialize_entry(item, request) for item in page],
+    })
+
+
+def visible_entries(user):
+    """Same visibility rule as the web entry detail page."""
+    qs = _entry_qs()
+    if user.is_scd_admin or user.is_division_head:
+        return qs
+    if user.is_auditor or user.is_group_leader or user.is_functional_lead:
+        return qs.filter(Q(is_division_head_only=False) | Q(author=user))
+    return qs.filter(author=user)
+
+
+class EntryDetailAPIView(TokenAPIView):
+    """GET /api/entries/<id>/ — one entry as JSON or any exporter format."""
+
+    def get(self, request, pk):
+        qs = visible_entries(request.user).filter(pk=pk)
+        item = qs.first()
+        if item is None:
+            return JsonResponse({'error': f'Entry {pk} not found.'}, status=404)
+        fmt = (request.GET.get('format') or 'json').lower()
+        if fmt == 'json':
+            return JsonResponse(serialize_entry(item, request))
+        try:
+            return _export(request, qs, fmt, 'api-entry')
+        except ParamError as exc:
+            return JsonResponse({'errors': exc.errors}, status=400)

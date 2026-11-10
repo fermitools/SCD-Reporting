@@ -38,7 +38,8 @@ The application is designed to work in the Fermilab security environment and wit
 - **Taxonomy management** — projects, categories, and organisational groups are managed through a tabbed web UI (Admin role required)
 - **User management** — administrators can create accounts, assign roles, reset passwords, and delete users; group leaders and division heads see only their own group's members
 - **API token management** — users can generate, rotate, and revoke personal API tokens from their profile; admins can view and revoke all tokens from a dedicated admin page
-- **REST API** — authenticated entry creation via `POST /api/entries/` using a Bearer token; suitable for scripted or automated submission
+- **REST API** — Bearer-token endpoints to create entries (`POST /api/entries/`), list and fetch entries, run reports in any export format (`/api/reports/`), generate AI summaries, and look up taxonomy and account scope
+- **Command-line tools** — `scd-report`, `scd-summary`, `scd-entries`, `scd-entry`, `scd-taxonomy`, `scd-whoami` and a stdlib-only Python client (`scripts/scd_client.py`); see [docs/CLI.md](docs/CLI.md)
 - **Bug reporting** — authenticated users can submit bug reports directly to the GitHub repository from within the application; submissions use a GitHub App installation token (no personal credentials required) and are rate-limited per user
 - **SSO** — local email/password auth via django-allauth; optional OIDC single sign-on (Fermilab Keycloak / CILogon); the SSO button appears only when OIDC credentials are configured
 
@@ -475,7 +476,30 @@ the command-line flags above.
 
 ## API
 
-The REST API supports entry creation with Bearer token authentication. Tokens are managed from the user profile page (`/profile/`).
+The REST API uses Bearer token authentication. Tokens are managed from the user profile page (`/profile/`). Session cookies are not accepted by `/api/` endpoints.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/entries/` | Create an entry |
+| `GET /api/entries/` | List your own entries (JSON page, or any export format) |
+| `GET /api/entries/<id>/` | One entry |
+| `GET\|POST /api/reports/` | Reports-page filters → txt, md, csv, json, xlsx, pdf, or a count (Reporter roles) |
+| `POST /api/reports/summary/` | AI summary of a report selection (Reporter roles) |
+| `GET /api/taxonomy/[<kind>/]` | Projects, categories, groups, entry types, lab priorities, tags |
+| `GET /api/whoami/` | Token user, role and report scope |
+
+### Command-line tools
+
+```bash
+export PATH="$PWD/scripts:$PATH" MANPATH="$PWD/man:$(manpath)"
+cp config/scd-client.yaml.example ~/.config/scd-reporting/config.yaml   # set url + token_file
+scd-whoami
+scd-report -p dune --period last-month -f md -o dune.md
+scd-summary -p dune --period last-week
+scd-entries --period this-month
+```
+
+Full reference, configuration precedence and the Python API: [docs/CLI.md](docs/CLI.md) and `man scd-report` etc.
 
 ### Create an entry
 

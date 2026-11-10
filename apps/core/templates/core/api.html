@@ -176,6 +176,99 @@ curl -s -X POST https://scd-reporting.fnal.gov/api/entries/ \
         </div>
       </div>
 
+      <div class="px-6 py-4">
+        <div class="flex items-start gap-3">
+          <span class="method-get mt-0.5">GET · POST</span>
+          <div class="flex-1 min-w-0">
+            <code class="font-mono text-sm text-slate-800">/api/reports/</code>
+            <span class="ml-3 badge badge-reporter">Reporter</span>
+            <p class="mt-1 text-sm text-slate-600">Run the Reports-page filter and download the result. Scoped exactly like the Reports page; every export is written to the audit log. Parameters may be a query string, a form body or a JSON object; lists may repeat the key, be comma-separated or be JSON arrays. Unknown slugs return <code class="font-mono bg-slate-100 px-1 rounded text-xs">400</code>.</p>
+            <table class="mt-2 w-full text-xs text-slate-700"><tbody class="divide-y divide-slate-50">
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">format</code></td><td class="py-1">json (default), txt, md, csv, xlsx, pdf</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">count</code></td><td class="py-1">1 → <code class="font-mono bg-slate-100 px-1 rounded text-xs">{"count": N}</code> only</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">search</code></td><td class="py-1">title/description search; AND, OR, XOR, "quoted phrases"</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">author_email</code></td><td class="py-1">author email substring</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">projects, categories, lab_priorities</code></td><td class="py-1">slugs or ids; match any</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">group, employee_group, entry_type</code></td><td class="py-1">slug or id</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">period_after, period_before</code></td><td class="py-1">YYYY-MM-DD</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">date_match</code></td><td class="py-1">contained (default) or overlap</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">is_private, exclude_private, show_archived</code></td><td class="py-1">true</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">selected_ids</code></td><td class="py-1">restrict to these entry ids</td></tr>
+            </tbody></table>
+            <pre class="mt-2 bg-slate-50 border border-slate-200 rounded p-3 text-xs text-slate-700 overflow-x-auto">curl -H "Authorization: Bearer $SCD_TOKEN" \
+  "$SCD_URL/api/reports/?format=md&amp;projects=dune&amp;period_after=2026-10-01"</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4">
+        <div class="flex items-start gap-3">
+          <span class="method-post mt-0.5">POST</span>
+          <div class="flex-1 min-w-0">
+            <code class="font-mono text-sm text-slate-800">/api/reports/summary/</code>
+            <span class="ml-3 badge badge-reporter">Reporter</span>
+            <p class="mt-1 text-sm text-slate-600">AI summary of the same selection (a paid model call; blocks until complete). Same filters, plus <code class="font-mono bg-slate-100 px-1 rounded text-xs">format</code> = json (default; text plus token counts and <code class="font-mono bg-slate-100 px-1 rounded text-xs">truncated</code>), md or txt, and <code class="font-mono bg-slate-100 px-1 rounded text-xs">template</code> = name or id of one of your saved prompt templates. <code class="font-mono bg-slate-100 px-1 rounded text-xs">400</code> for an empty selection or model configuration error, <code class="font-mono bg-slate-100 px-1 rounded text-xs">502</code> if the model call fails.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4">
+        <div class="flex items-start gap-3">
+          <span class="method-get mt-0.5">GET</span>
+          <div class="flex-1 min-w-0">
+            <code class="font-mono text-sm text-slate-800">/api/entries/</code>
+            <span class="ml-3 badge badge-login">Login</span>
+            <p class="mt-1 text-sm text-slate-600">Your own entries. <code class="font-mono bg-slate-100 px-1 rounded text-xs">format=json</code> (default) returns <code class="font-mono bg-slate-100 px-1 rounded text-xs">{count, limit, offset, results}</code>; any other export format returns every match as a file.</p>
+            <table class="mt-2 w-full text-xs text-slate-700"><tbody class="divide-y divide-slate-50">
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">q</code></td><td class="py-1">title, description or tag substring</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">projects, categories</code></td><td class="py-1">slugs or ids; match any</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">period_after, period_before</code></td><td class="py-1">YYYY-MM-DD; entries overlapping the range</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">archived</code></td><td class="py-1">0 (default), 1, all</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">limit, offset</code></td><td class="py-1">page size 1–1000 (default 100) and offset</td></tr>
+              <tr><td class="py-1 pr-4 align-top whitespace-nowrap"><code class="font-mono bg-slate-100 px-1 rounded text-xs">format</code></td><td class="py-1">json, txt, md, csv, xlsx, pdf</td></tr>
+            </tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4">
+        <div class="flex items-start gap-3">
+          <span class="method-get mt-0.5">GET</span>
+          <div class="flex-1 min-w-0">
+            <code class="font-mono text-sm text-slate-800">/api/entries/&lt;id&gt;/</code>
+            <span class="ml-3 badge badge-login">Login</span>
+            <p class="mt-1 text-sm text-slate-600">One entry as JSON or any export format (<code class="font-mono bg-slate-100 px-1 rounded text-xs">format</code>). Visibility matches the web entry page; <code class="font-mono bg-slate-100 px-1 rounded text-xs">404</code> otherwise.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4">
+        <div class="flex items-start gap-3">
+          <span class="method-get mt-0.5">GET</span>
+          <div class="flex-1 min-w-0">
+            <code class="font-mono text-sm text-slate-800">/api/taxonomy/ · /api/taxonomy/&lt;kind&gt;/</code>
+            <span class="ml-3 badge badge-login">Login</span>
+            <p class="mt-1 text-sm text-slate-600">Lookup tables with the ids and slugs the filters accept. <code class="font-mono bg-slate-100 px-1 rounded text-xs">kind</code>: projects, categories, entry-types, groups, lab-priorities, tags. <code class="font-mono bg-slate-100 px-1 rounded text-xs">all=1</code> includes inactive values.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4">
+        <div class="flex items-start gap-3">
+          <span class="method-get mt-0.5">GET</span>
+          <div class="flex-1 min-w-0">
+            <code class="font-mono text-sm text-slate-800">/api/whoami/</code>
+            <span class="ml-3 badge badge-login">Login</span>
+            <p class="mt-1 text-sm text-slate-600">The token's user, role, group, whether it can run reports and with which group/project scope, available export formats and token last-used time.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4 bg-slate-50 text-xs text-slate-600">
+        Token endpoints accept <strong>only</strong> <code class="font-mono bg-slate-100 px-1 rounded text-xs">Authorization: Bearer</code> — never a session cookie — and reject tokens of deactivated users.
+        Command-line tools for every endpoint (<code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-report</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-summary</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-entries</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-entry</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-taxonomy</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-whoami</code>) and a Python client are in <code class="font-mono bg-slate-100 px-1 rounded text-xs">scripts/</code>; see <code class="font-mono bg-slate-100 px-1 rounded text-xs">docs/CLI.md</code> in the repository.
+      </div>
+
     </div>
   </div>
 

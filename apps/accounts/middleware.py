@@ -14,6 +14,7 @@ def _select_group_url():
 # Paths that must always be reachable regardless of group/role status
 _PASSTHROUGH_PREFIXES = (
     '/accounts/',   # allauth login/logout/SSO callbacks
+    '/api/',        # token API: JSON clients must never be redirected to an HTML page
     '/static/',
     '/media/',
     '/__debug__/',

@@ -1,0 +1,95 @@
+.TH SCD_CLIENT 3 "2026-11-10" "SCD Reporting 1.0.0" "SCD Reporting"
+.SH NAME
+scd_client \- Python client library for the SCD Reporting token API
+.SH SYNOPSIS
+.nf
+import sys; sys.path.insert(0, "<repo>/scripts")
+from scd_client import Client, load_settings
+
+c = Client.from_settings(load_settings())
+c = Client(url, token, timeout=300, ca_bundle=None, insecure=False, verbose=False)
+.fi
+.SH DESCRIPTION
+\fBscd_client\fR is a single-file, standard-library-only module (\fIscripts/scd_client.py\fR) that
+implements the \fBscd\-*\fR(1) tools. Its classes and functions are a stable Python API.
+.SH SETTINGS
+.TP
+.BI load_settings( "cli=None, environ=None, cwd=None, home_config_dir=None" )
+Resolve settings with precedence \fIcli\fR dict > \fIenviron\fR (default \fBos.environ\fR) >
+\fB.env\fR files > YAML config > defaults. Keys: \fBurl\fR, \fBtoken\fR, \fBtoken_file\fR,
+\fBtimeout\fR (float), \fBca_bundle\fR, \fBinsecure\fR (bool), \fBformat\fR, plus \fBconfig_path\fR
+and \fBsources\fR (key \(-> where its value came from). Raises \fBScdError\fR.
+.TP
+.BI period_range( "name, today=None" )
+\fB(start, end)\fR \fBdatetime.date\fR pair for \fBtoday\fR, \fBthis\-week\fR, \fBlast\-week\fR,
+\fBthis\-month\fR, \fBlast\-month\fR, \fBthis\-quarter\fR, \fBlast\-quarter\fR, \fBthis\-year\fR,
+\fBlast\-year\fR.
+.SH CLIENT METHODS
+Filter keyword arguments are the server's parameter names: \fBsearch\fR, \fBauthor_email\fR,
+\fBprojects\fR, \fBcategories\fR, \fBlab_priorities\fR (lists of slugs or ids), \fBgroup\fR,
+\fBemployee_group\fR, \fBentry_type\fR, \fBperiod_after\fR, \fBperiod_before\fR (ISO dates),
+\fBdate_match\fR (\fB"contained"\fR or \fB"overlap"\fR), \fBis_private\fR, \fBexclude_private\fR,
+\fBshow_archived\fR (bools), \fBselected_ids\fR (list of ints).
+.TP
+.BI whoami()
+dict: user, role, group, \fBcan_report\fR, report scopes, export formats, token timestamps.
+.TP
+.BI taxonomy( "kind=None, include_inactive=False" )
+dict of lists of \fB{id, slug, name, short_code, is_active, sort_order}\fR (tags:
+\fB{id, name, use_count}\fR).
+.TP
+.BI report( "fmt='json', **filters" )
+Report rows (list of dicts) for \fBjson\fR; otherwise a \fBResponse\fR whose \fB.body\fR is the file
+bytes, \fB.text()\fR decodes it and \fB.filename\fR is the server's suggested name.
+.TP
+.BI report_count( **filters )
+int.
+.TP
+.BI summary( "fmt='json', template=None, **filters" )
+dict \fB{count, text, truncated, stop_reason, input_tokens, output_tokens, max_tokens}\fR, or a
+\fBResponse\fR for \fBmd\fR/\fBtxt\fR.
+.TP
+.BI entries( "**filters" )
+One page of your own entries: \fB{count, limit, offset, results}\fR. Filters: \fBq\fR,
+\fBprojects\fR, \fBcategories\fR, \fBperiod_after\fR, \fBperiod_before\fR (overlap), \fBarchived\fR
+(\fB"0"\fR, \fB"1"\fR, \fB"all"\fR), \fBlimit\fR (\(<= 1000), \fBoffset\fR.
+.TP
+.BI iter_entries( "page_size=500, **filters" )
+Generator over all matching entries.
+.TP
+.BI export_entries( "fmt, **filters" )
+\fBResponse\fR with all matching entries in an export format.
+.TP
+.BI entry( "entry_id, fmt='json'" )
+dict, or \fBResponse\fR for other formats.
+.TP
+.BI create_entry( payload )
+POST /api/entries/; returns the created entry summary.
+.TP
+.BI request( "method, path, params=None, json_body=None" )
+Low-level call; returns \fBResponse\fR.
+.SH EXCEPTIONS
+.TP
+.B ScdError
+Client-side configuration or usage problem.
+.TP
+.B ScdApiError
+HTTP status \(>= 400, or HTML where API output was expected. Attributes \fBstatus\fR,
+\fBmessage\fR, \fBerrors\fR (field \(-> message).
+.TP
+.B ScdNetworkError
+Connection, DNS, TLS or timeout failure.
+.SH EXAMPLE
+.nf
+from scd_client import Client, load_settings, period_range
+c = Client.from_settings(load_settings())
+start, end = period_range("last-month")
+md = c.report("md", projects=["dune"], period_after=start.isoformat(),
+              period_before=end.isoformat(), date_match="overlap").text()
+open("dune.md", "w").write(md)
+for e in c.iter_entries(q="timing"):
+    print(e["id"], e["title"])
+.fi
+.SH SEE ALSO
+\fBscd\-report\fR(1), \fBscd\-summary\fR(1), \fBscd\-entries\fR(1), \fBscd\-entry\fR(1),
+\fBscd\-taxonomy\fR(1), \fBscd\-whoami\fR(1)

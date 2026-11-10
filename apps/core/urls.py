@@ -1,8 +1,9 @@
 from django.urls import path
 
-from apps.entries.api_views import EntryCreateAPIView
+from apps.entries.api_views import EntryCreateAPIView, EntryDetailAPIView
+from apps.reports.api_views import ReportAPIView, ReportSummaryAPIView
 
-from . import views
+from . import api_views, views
 
 urlpatterns = [
     path('', views.DashboardView.as_view(), name='dashboard'),
@@ -14,6 +15,12 @@ urlpatterns = [
     path('about/', views.AboutView.as_view(), name='about'),
     path('api/',   views.ApiView.as_view(),   name='api'),
     path('api/entries/', EntryCreateAPIView.as_view(), name='api-entry-create'),
+    path('api/entries/<int:pk>/', EntryDetailAPIView.as_view(), name='api-entry-detail'),
+    path('api/reports/',          ReportAPIView.as_view(),        name='api-reports'),
+    path('api/reports/summary/',  ReportSummaryAPIView.as_view(), name='api-reports-summary'),
+    path('api/whoami/',           api_views.WhoAmIAPIView.as_view(),  name='api-whoami'),
+    path('api/taxonomy/',         api_views.TaxonomyAPIView.as_view(), name='api-taxonomy'),
+    path('api/taxonomy/<slug:kind>/', api_views.TaxonomyAPIView.as_view(), name='api-taxonomy-kind'),
     path('bug-report/', views.BugReportView.as_view(), name='bug-report'),
     path('bug-report/submit/', views.BugReportSubmitView.as_view(), name='bug-report-submit'),
 ]

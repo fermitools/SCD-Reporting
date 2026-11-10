@@ -1,0 +1,32 @@
+# Client settings for the scd-* command-line tools (scd-report, scd-summary,
+# scd-entries, scd-entry, scd-taxonomy, scd-whoami) and scd-post-entry.
+#
+# Copy to ~/.config/scd-reporting/config.yaml (the default location), or point
+# at it with --config FILE or SCD_CONFIG=FILE.
+#
+# Precedence per key: command line > environment (SCD_*) > .env > this file > default.
+# `scd-whoami --settings` shows where each resolved value came from.
+
+# Server root URL (no /api suffix).                            [SCD_URL]
+url: https://scd-reporting.fnal.gov
+
+# API token from Profile > API Token. Prefer token_file so the
+# token is not in a file you might share or commit.           [SCD_TOKEN]
+# token: 0123abcd...
+
+# File holding only the token; chmod 600.                     [SCD_TOKEN_FILE]
+token_file: ~/.config/scd-reporting/token
+
+# Default output format of scd-report: md, txt, csv, json,
+# xlsx or pdf.                                                [SCD_FORMAT]
+format: md
+
+# Request timeout in seconds; AI summaries can take minutes.  [SCD_TIMEOUT]
+timeout: 300
+
+# PEM bundle used to verify the server certificate, if the
+# system store does not already trust it.                     [SCD_CA_BUNDLE]
+# ca_bundle: /etc/pki/tls/certs/ca-bundle.crt
+
+# Skip TLS verification. Testing only.                        [SCD_INSECURE]
+insecure: false

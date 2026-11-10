@@ -1,0 +1,162 @@
+.TH SCD-TAXONOMY 1 "2026-11-10" "SCD Reporting 1.0.0" "SCD Reporting"
+.SH NAME
+scd\-taxonomy \- list SCD Reporting projects, categories, groups and other lookup values
+.SH SYNOPSIS
+.B scd\-taxonomy
+[\fIKIND\fR] [\fB\-\-all\fR] [\fB\-\-json\fR] [\fB\-c\fR \fIFILE\fR] [\fB\-u\fR \fIURL\fR] [\fB\-t\fR \fITOKEN\fR] [\fB\-\-token\-file\fR \fIFILE\fR] [\fB\-\-timeout\fR \fISEC\fR] [\fB\-\-ca\-bundle\fR \fIFILE\fR] [\fB\-k\fR] [\fB\-v\fR]
+.SH DESCRIPTION
+Prints the lookup tables through \fBGET /api/taxonomy/\fR so you can find the slugs and ids
+the filters of \fBscd\-report\fR(1) and \fBscd\-entries\fR(1) accept. Any role may use it.
+.SH OPTIONS
+.TP
+.I KIND
+One of \fBprojects\fR, \fBcategories\fR, \fBentry\-types\fR, \fBgroups\fR, \fBlab\-priorities\fR,
+\fBtags\fR. Default: all of them.
+.TP
+.B \-\-all
+Include inactive values (shown with an ACTIVE column). Inactive values are not accepted by the
+report filters.
+.TP
+.B \-\-json
+Raw JSON.
+.SH CONNECTION OPTIONS
+These override the environment, \fB.env\fR files and the config file.
+.TP
+.BI \-c " FILE" "\fR, \fP\-\-config " FILE
+YAML config file. Default: \fB$SCD_CONFIG\fR, else
+\fI~/.config/scd\-reporting/config.yaml\fR. Naming a file that does not exist is an error.
+.TP
+.BI \-u " URL" "\fR, \fP\-\-url " URL
+Server root URL, e.g. \fBhttps://scd\-reporting.fnal.gov\fR.
+.TP
+.BI \-t " TOKEN" "\fR, \fP\-\-token " TOKEN
+API token (Profile \(-> API Token). Prefer \fB\-\-token\-file\fR or the config file:
+a token on the command line is visible in the process list and shell history.
+.TP
+.BI \-\-token\-file " FILE"
+Read the token from \fIFILE\fR (used only when no token is set by a higher-priority source).
+.TP
+.BI \-\-timeout " SEC"
+Request timeout in seconds (default 300; AI summaries can take minutes).
+.TP
+.BI \-\-ca\-bundle " FILE"
+PEM file of CA certificates used to verify the server.
+.TP
+.BR \-k ", " \-\-insecure
+Do not verify the server's TLS certificate. Testing only.
+.TP
+.BR \-v ", " \-\-verbose
+Log each request URL and the response status, type and size to standard error.
+The token is never logged.
+.TP
+.B \-\-version
+Print the client version.
+.SH CONFIGURATION
+Settings are resolved per key in this order, highest first:
+.IP 1. 4
+command-line options;
+.IP 2. 4
+environment variables;
+.IP 3. 4
+\fB.env\fR files: \fI./.env\fR, then \fI~/.config/scd\-reporting/.env\fR (only \fBSCD_*\fR keys are read;
+the current directory's file wins);
+.IP 4. 4
+the YAML config file;
+.IP 5. 4
+built-in defaults.
+.PP
+Config file keys are \fBurl\fR, \fBtoken\fR, \fBtoken_file\fR, \fBtimeout\fR, \fBca_bundle\fR,
+\fBinsecure\fR and \fBformat\fR. The file is shared with \fBscd\-post\-entry\fR(1).
+Example (see \fIconfig/scd\-client.yaml.example\fR):
+.PP
+.nf
+.RS
+url: https://scd\-reporting.fnal.gov
+token_file: ~/.config/scd\-reporting/token
+format: md
+timeout: 300
+.RE
+.fi
+.PP
+Run \fBscd\-whoami \-\-settings\fR to see each resolved value and where it came from.
+.SH ENVIRONMENT
+.TP
+.B SCD_URL
+Server root URL.
+.TP
+.B SCD_TOKEN
+API token.
+.TP
+.B SCD_TOKEN_FILE
+File containing the API token.
+.TP
+.B SCD_CONFIG
+Path of the YAML config file.
+.TP
+.B SCD_TIMEOUT
+Request timeout in seconds.
+.TP
+.B SCD_CA_BUNDLE
+CA certificate bundle.
+.TP
+.B SCD_INSECURE
+\fB1\fR/\fBtrue\fR/\fByes\fR disables TLS verification.
+.TP
+.B SCD_FORMAT
+Default output format of \fBscd\-report\fR(1).
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+The server rejected the request (HTTP 4xx/5xx). The status and the server's message, including
+per-field errors, are printed to standard error. 401 means the token is missing, wrong, revoked
+or belongs to a deactivated account; 403 means your role does not allow the request.
+.TP
+.B 2
+Usage or configuration error (no URL or token, bad option, missing config file, binary output to a
+terminal).
+.TP
+.B 3
+The server could not be reached (DNS, connection refused, TLS failure, timeout).
+.SH FILES
+.TP
+.I ~/.config/scd\-reporting/config.yaml
+Default config file.
+.TP
+.I ~/.config/scd\-reporting/.env
+Per-user \fB.env\fR file.
+.TP
+.I ./.env
+Per-directory \fB.env\fR file.
+.SH NOTES
+All tools use only the Python standard library (PyYAML is used for the config file when installed,
+otherwise a simple \fBkey: value\fR reader). Python 3.9 or later. On Windows run them through the
+interpreter, e.g. \fBpy scripts\\scd\-report \-f md\fR or \fBpy scripts\\scd_client.py report \-f md\fR.
+.SH EXAMPLES
+Project slugs:
+.PP
+.nf
+.RS
+scd\-taxonomy projects
+.RE
+.fi
+.PP
+Most used tags:
+.PP
+.nf
+.RS
+scd\-taxonomy tags | head
+.RE
+.fi
+.SH SEE ALSO
+\fBscd\-report\fR(1),
+\fBscd\-summary\fR(1),
+\fBscd\-entries\fR(1),
+\fBscd\-entry\fR(1),
+\fBscd\-whoami\fR(1),
+\fBscd_client\fR(3),
+\fBscd\-post\-entry\fR(1)
+.PP
+The API reference: \fI/api/\fR on the server and \fIdocs/CLI.md\fR in the repository.
