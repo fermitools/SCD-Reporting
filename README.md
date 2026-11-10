@@ -40,6 +40,7 @@ The application is designed to work in the Fermilab security environment and wit
 - **API token management** — users can generate, rotate, and revoke personal API tokens from their profile; admins can view and revoke all tokens from a dedicated admin page
 - **REST API** — Bearer-token endpoints to create entries (`POST /api/entries/`), list and fetch entries, run reports in any export format (`/api/reports/`), generate AI summaries, and look up taxonomy and account scope
 - **Command-line tools** — `scd-report`, `scd-summary`, `scd-entries`, `scd-entry`, `scd-taxonomy`, `scd-whoami` and a stdlib-only Python client (`scripts/scd_client.py`); see [docs/CLI.md](docs/CLI.md)
+- **MCP server** — `scripts/scd-mcp` exposes every API route as a Model Context Protocol tool for Claude Code / Claude Desktop; setup instructions with your server URL are at `/mcp/` in the app and in [docs/MCP.md](docs/MCP.md)
 - **Bug reporting** — authenticated users can submit bug reports directly to the GitHub repository from within the application; submissions use a GitHub App installation token (no personal credentials required) and are rate-limited per user
 - **SSO** — local email/password auth via django-allauth; optional OIDC single sign-on (Fermilab Keycloak / CILogon); the SSO button appears only when OIDC credentials are configured
 
@@ -500,6 +501,14 @@ scd-entries --period this-month
 ```
 
 Full reference, configuration precedence and the Python API: [docs/CLI.md](docs/CLI.md) and `man scd-report` etc.
+
+### MCP server
+
+```bash
+claude mcp add --scope user scd-reporting -- python3 "$PWD/scripts/scd-mcp"
+```
+
+Nine tools cover every route above (`scd_create_entry`, `scd_run_report`, `scd_report_summary`, ...). `--read-only` and `--no-summary` restrict them. The repo's `.mcp.json` registers the server for Claude Code sessions started in the checkout. See [docs/MCP.md](docs/MCP.md), `man scd-mcp`, and the in-app `/mcp/` page.
 
 ### Create an entry
 

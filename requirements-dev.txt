@@ -3,3 +3,4 @@ pytest>=8.0.0
 pytest-django>=4.8.0
 coverage>=7.5.0
 factory-boy>=3.3.0
+mcp>=2.3.0; python_version >= "3.10"   # MCP SDK, used only as a conformance test client for scripts/scd-mcp

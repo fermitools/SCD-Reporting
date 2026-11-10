@@ -175,7 +175,8 @@
       <span>Fermilab SCD Activity Reporting System</span>
       <div class="flex gap-4">
         <a href="{% url 'about' %}" class="hover:text-slate-600">About</a>
-        {% if user.is_authenticated %}<a href="{% url 'api' %}" class="hover:text-slate-600">API</a>{% endif %}
+        {% if user.is_authenticated %}<a href="{% url 'api' %}" class="hover:text-slate-600">API</a>
+        <a href="{% url 'mcp' %}" class="hover:text-slate-600">MCP</a>{% endif %}
         <a href="{% url 'bug-report' %}" class="hover:text-slate-600">Report a bug</a>
       </div>
     </div>

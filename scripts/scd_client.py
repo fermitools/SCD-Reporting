@@ -51,6 +51,9 @@ SETTINGS = {
     'ca_bundle':  ('SCD_CA_BUNDLE',  ''),
     'insecure':   ('SCD_INSECURE',   'false'),
     'format':     ('SCD_FORMAT',     'md'),
+    # Used only by scd-mcp.
+    'mcp_read_only':  ('SCD_MCP_READ_ONLY',  'false'),
+    'mcp_no_summary': ('SCD_MCP_NO_SUMMARY', 'false'),
 }
 
 BINARY_FORMATS = ('xlsx', 'pdf')

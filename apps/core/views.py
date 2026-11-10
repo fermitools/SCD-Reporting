@@ -150,6 +150,29 @@ class ApiView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class McpView(LoginRequiredMixin, TemplateView):
+    """Instructions for connecting an MCP client (Claude Code, Claude Desktop) to this server."""
+    template_name = 'core/mcp.html'
+
+    def get_context_data(self, **kwargs):
+        from django.conf import settings
+
+        from apps.accounts.models import APIToken
+        from apps.core.api_auth import can_report
+
+        from .mcp_doc import MCP_TOOLS, REPO_URL
+        ctx = super().get_context_data(**kwargs)
+        user = self.request.user
+        ctx['site_url'] = self.request.build_absolute_uri('/').rstrip('/')
+        ctx['api_token'] = APIToken.objects.filter(user=user).first()
+        ctx['can_report'] = can_report(user)
+        ctx['tools'] = [
+            {'name': n, 'access': a, 'reporter': r, 'summary': s} for n, a, r, s in MCP_TOOLS
+        ]
+        ctx['repo_url'] = getattr(settings, 'SCD_REPO_URL', '') or REPO_URL
+        return ctx
+
+
 def _github_app_installation_token(app_id, private_key_pem, installation_id):
     """Exchange GitHub App credentials for a short-lived installation access token."""
     import time

@@ -267,6 +267,7 @@ curl -s -X POST https://scd-reporting.fnal.gov/api/entries/ \
       <div class="px-6 py-4 bg-slate-50 text-xs text-slate-600">
         Token endpoints accept <strong>only</strong> <code class="font-mono bg-slate-100 px-1 rounded text-xs">Authorization: Bearer</code> — never a session cookie — and reject tokens of deactivated users.
         Command-line tools for every endpoint (<code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-report</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-summary</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-entries</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-entry</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-taxonomy</code>, <code class="font-mono bg-slate-100 px-1 rounded text-xs">scd-whoami</code>) and a Python client are in <code class="font-mono bg-slate-100 px-1 rounded text-xs">scripts/</code>; see <code class="font-mono bg-slate-100 px-1 rounded text-xs">docs/CLI.md</code> in the repository.
+        To use the API from Claude Code or another AI assistant, see <a href="{% url 'mcp' %}" class="text-scd-primary hover:underline">MCP setup</a>.
       </div>
 
     </div>

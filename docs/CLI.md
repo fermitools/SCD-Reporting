@@ -18,6 +18,8 @@ or CSRF handling is involved.
 can open the Reports page. Results are scoped exactly as on that page.
 ² Visibility as on the web entry page.
 
+An MCP server exposing the same routes to Claude Code and other assistants is described in [MCP.md](MCP.md).
+
 The existing `POST /api/entries/` (create) and `scd-post-entry` / `scd-post-entry-json` are unchanged.
 
 ## Install

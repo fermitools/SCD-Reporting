@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "scd-reporting": {
+      "command": "python3",
+      "args": ["scripts/scd-mcp"]
+    }
+  }
+}

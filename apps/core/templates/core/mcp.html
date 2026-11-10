@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}MCP — SCD Reporting{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl space-y-8">
+
+  <div>
+    <h1 class="text-2xl font-bold text-slate-900">Connect an AI assistant (MCP)</h1>
+    <p class="mt-1 text-sm text-slate-500">
+      SCD Reporting provides a <a href="https://modelcontextprotocol.io" class="text-scd-primary hover:underline" target="_blank" rel="noopener">Model Context Protocol</a>
+      server so that Claude Code, Claude Desktop and other MCP clients can read and post entries, run reports and generate summaries for you.
+      The server is a small program that runs on <em>your</em> computer, started by the client. It talks to this site through the
+      <a href="{% url 'api' %}" class="text-scd-primary hover:underline">token API</a> using your personal API token, so it can see and do exactly what you can.
+    </p>
+  </div>
+
+  {% comment %}— Connection summary ————————————————————————{% endcomment %}
+  <div class="bg-white rounded-lg border border-blue-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-blue-50 border-b border-blue-200">
+      <h2 class="text-base font-semibold text-blue-900">Your connection details</h2>
+    </div>
+    <dl class="px-6 py-4 grid grid-cols-1 sm:grid-cols-[12rem_1fr] gap-x-4 gap-y-3 text-sm">
+      <dt class="text-slate-500">Server URL</dt>
+      <dd class="flex items-center gap-2 min-w-0">
+        <code id="mcp-site-url" class="font-mono bg-slate-100 px-1.5 py-0.5 rounded break-all">{{ site_url }}</code>
+        <button type="button" class="copy-btn" data-copy-target="mcp-site-url">Copy</button>
+      </dd>
+      <dt class="text-slate-500">Transport</dt>
+      <dd>stdio: the client starts <code class="font-mono bg-slate-100 px-1 rounded">scripts/scd-mcp</code> locally</dd>
+      <dt class="text-slate-500">Server name</dt>
+      <dd><code class="font-mono bg-slate-100 px-1 rounded">scd-reporting</code></dd>
+      <dt class="text-slate-500">API token</dt>
+      <dd>
+        {% if api_token %}
+          <span class="text-green-700 font-medium">Active</span>
+          <span class="text-slate-500">· created {{ api_token.created_at|date:"Y-m-d" }}{% if api_token.last_used_at %} · last used {{ api_token.last_used_at|date:"Y-m-d H:i" }}{% else %} · never used{% endif %}</span>
+          · copy it from <a href="{% url 'profile' %}" class="text-scd-primary hover:underline">Profile</a>
+        {% else %}
+          <span class="text-amber-700 font-medium">None yet</span> ·
+          <a href="{% url 'profile' %}" class="text-scd-primary hover:underline">generate one on your Profile</a> before connecting
+        {% endif %}
+      </dd>
+      <dt class="text-slate-500">Your role</dt>
+      <dd>{{ user.get_role_display }}{% if can_report %} · report tools available{% else %} · report tools will return “permission denied” (they need Auditor, Group Leader, Division Head, Functional Lead or Admin){% endif %}</dd>
+      <dt class="text-slate-500">Requirements</dt>
+      <dd>Python 3.9 or later. No other packages are needed (PyYAML is used if present).</dd>
+    </dl>
+  </div>
+
+  {% comment %}— Step 1 ————————————————————————————————————{% endcomment %}
+  <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">1. Get the client files</h2>
+    </div>
+    <div class="px-6 py-4 space-y-3 text-sm text-slate-700">
+      <p>The MCP server and the command-line tools are in the <code class="font-mono bg-slate-100 px-1 rounded">scripts/</code> directory of the project repository. Keep <code class="font-mono bg-slate-100 px-1 rounded">scd-mcp</code>, <code class="font-mono bg-slate-100 px-1 rounded">scd_mcp.py</code> and <code class="font-mono bg-slate-100 px-1 rounded">scd_client.py</code> together.</p>
+      <div class="snippet"><pre id="mcp-clone">git clone {{ repo_url }}.git ~/SCD-Reporting</pre><button type="button" class="copy-btn" data-copy-target="mcp-clone">Copy</button></div>
+    </div>
+  </section>
+
+  {% comment %}— Step 2 ————————————————————————————————————{% endcomment %}
+  <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">2. Save the server URL and your token</h2>
+    </div>
+    <div class="px-6 py-4 space-y-3 text-sm text-slate-700">
+      <p>The MCP server reads the same settings as the <code class="font-mono bg-slate-100 px-1 rounded">scd-*</code> command-line tools. Put the token in its own file so it never appears in a client configuration file.</p>
+      <p class="font-medium text-slate-800">Linux and macOS</p>
+      <div class="snippet"><pre id="mcp-config-unix">mkdir -p ~/.config/scd-reporting
+cat &gt; ~/.config/scd-reporting/config.yaml &lt;&lt;'EOF'
+url: {{ site_url }}
+token_file: ~/.config/scd-reporting/token
+EOF
+read -rs -p "Paste API token: " T &amp;&amp; printf '%s\n' "$T" &gt; ~/.config/scd-reporting/token &amp;&amp; unset T
+chmod 600 ~/.config/scd-reporting/token</pre><button type="button" class="copy-btn" data-copy-target="mcp-config-unix">Copy</button></div>
+      <p class="font-medium text-slate-800">Windows 11 (PowerShell)</p>
+      <div class="snippet"><pre id="mcp-config-win">$d = "$HOME\.config\scd-reporting"; New-Item -ItemType Directory -Force $d | Out-Null
+"url: {{ site_url }}`ntoken_file: $d\token" | Set-Content "$d\config.yaml"
+Read-Host "Paste API token" | Set-Content "$d\token"</pre><button type="button" class="copy-btn" data-copy-target="mcp-config-win">Copy</button></div>
+      <p>Check it with <code class="font-mono bg-slate-100 px-1 rounded">python3 ~/SCD-Reporting/scripts/scd-whoami</code>, which should print your name and role.</p>
+      <p class="text-xs text-slate-500">Precedence for every setting: command-line option &gt; environment (<code class="font-mono">SCD_URL</code>, <code class="font-mono">SCD_TOKEN</code>, <code class="font-mono">SCD_TOKEN_FILE</code>, …) &gt; <code class="font-mono">.env</code> &gt; config file. <code class="font-mono">scd-whoami --settings</code> shows where each value came from.</p>
+    </div>
+  </section>
+
+  {% comment %}— Step 3 ————————————————————————————————————{% endcomment %}
+  <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">3. Register the server with your client</h2>
+    </div>
+    <div class="px-6 py-4 space-y-4 text-sm text-slate-700">
+      <div class="space-y-2">
+        <p class="font-medium text-slate-800">Claude Code: every project (user scope)</p>
+        <div class="snippet"><pre id="mcp-cc-unix">claude mcp add --scope user scd-reporting -- python3 ~/SCD-Reporting/scripts/scd-mcp</pre><button type="button" class="copy-btn" data-copy-target="mcp-cc-unix">Copy</button></div>
+        <p class="text-xs text-slate-500">Windows (PowerShell): <code class="font-mono">claude mcp add --scope user scd-reporting -- py "$HOME\SCD-Reporting\scripts\scd-mcp"</code></p>
+        <p class="text-xs text-slate-500">Without a config file, pass the settings as environment variables instead:
+          <code class="font-mono break-all">claude mcp add --scope user scd-reporting -e SCD_URL={{ site_url }} -e SCD_TOKEN_FILE=~/.config/scd-reporting/token -- python3 ~/SCD-Reporting/scripts/scd-mcp</code></p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-medium text-slate-800">Claude Code: inside the SCD-Reporting checkout (project scope)</p>
+        <p>The repository already contains a <code class="font-mono bg-slate-100 px-1 rounded">.mcp.json</code> that registers this server. Start <code class="font-mono bg-slate-100 px-1 rounded">claude</code> in the checkout and approve <em>scd-reporting</em> when asked.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-medium text-slate-800">Claude Desktop and other MCP clients</p>
+        <p>Add this to the client's server list (Claude Desktop: Settings → Developer → Edit Config, <code class="font-mono bg-slate-100 px-1 rounded">claude_desktop_config.json</code>). Use absolute paths; on Windows use <code class="font-mono bg-slate-100 px-1 rounded">"command": "py"</code> and a <code class="font-mono bg-slate-100 px-1 rounded">C:\\…</code> path.</p>
+        <div class="snippet"><pre id="mcp-desktop">{
+  "mcpServers": {
+    "scd-reporting": {
+      "command": "python3",
+      "args": ["/Users/YOU/SCD-Reporting/scripts/scd-mcp"],
+      "env": { "SCD_URL": "{{ site_url }}" }
+    }
+  }
+}</pre><button type="button" class="copy-btn" data-copy-target="mcp-desktop">Copy</button></div>
+      </div>
+    </div>
+  </section>
+
+  {% comment %}— Step 4 ————————————————————————————————————{% endcomment %}
+  <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">4. Check the connection</h2>
+    </div>
+    <div class="px-6 py-4 space-y-2 text-sm text-slate-700">
+      <div class="snippet"><pre id="mcp-verify">claude mcp list                                   # scd-reporting should show "Connected"
+python3 ~/SCD-Reporting/scripts/scd-mcp --list-tools  # tools the server will offer</pre><button type="button" class="copy-btn" data-copy-target="mcp-verify">Copy</button></div>
+      <p>Then, in a Claude Code session, run <code class="font-mono bg-slate-100 px-1 rounded">/mcp</code> to see the server and its tools, or simply ask: <em>“Using scd-reporting, who am I?”</em></p>
+    </div>
+  </section>
+
+  {% comment %}— Tools ————————————————————————————————————{% endcomment %}
+  <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">Tools the server provides</h2>
+      <p class="text-xs text-slate-500 mt-0.5">Each tool calls one <a href="{% url 'api' %}" class="underline">API route</a>. Your client asks before running a tool unless you have allowed it.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-slate-500 border-b border-slate-100">
+            <th class="px-6 py-2 font-medium">Tool</th>
+            <th class="px-2 py-2 font-medium">Kind</th>
+            <th class="px-6 py-2 font-medium">What it does</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 text-slate-700">
+          {% for t in tools %}
+          <tr>
+            <td class="px-6 py-2 whitespace-nowrap"><code class="font-mono text-xs">{{ t.name }}</code></td>
+            <td class="px-2 py-2 whitespace-nowrap">
+              {% if t.access == 'write' %}<span class="kind kind-write">Writes</span>
+              {% elif t.access == 'paid' %}<span class="kind kind-paid">Paid</span>
+              {% else %}<span class="kind kind-read">Reads</span>{% endif %}
+              {% if t.reporter %}<span class="badge badge-reporter ml-1">Reporter</span>{% endif %}
+            </td>
+            <td class="px-6 py-2">{{ t.summary }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="px-6 py-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
+      <p><code class="font-mono">--read-only</code> (or <code class="font-mono">SCD_MCP_READ_ONLY=1</code>) removes <code class="font-mono">scd_create_entry</code>; <code class="font-mono">--no-summary</code> (or <code class="font-mono">SCD_MCP_NO_SUMMARY=1</code>) removes <code class="font-mono">scd_report_summary</code>. Add them after <code class="font-mono">scd-mcp</code> in the registration command.</p>
+      <p>xlsx and pdf results are saved to a file you name (<code class="font-mono">output_path</code>); text formats are returned to the assistant.</p>
+    </div>
+  </section>
+
+  {% comment %}— Troubleshooting ——————————————————————————{% endcomment %}
+  <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 bg-slate-50 border-b border-slate-200">
+      <h2 class="text-base font-semibold text-slate-900">Troubleshooting and security</h2>
+    </div>
+    <dl class="px-6 py-4 space-y-3 text-sm text-slate-700">
+      <div><dt class="font-medium text-slate-800">“HTTP 401” from a tool</dt><dd>The token is missing, wrong or was regenerated. Copy the current one from <a href="{% url 'profile' %}" class="text-scd-primary hover:underline">Profile</a> into your token file.</dd></div>
+      <div><dt class="font-medium text-slate-800">“HTTP 403” from a report tool</dt><dd>Your role cannot run reports. Your own entries are still available through the entry tools.</dd></div>
+      <div><dt class="font-medium text-slate-800">“No server URL” or “No API token”</dt><dd>The server could not find its settings. Run <code class="font-mono">scd-whoami --settings</code> in a terminal; the client starts the server with your normal home directory and environment.</dd></div>
+      <div><dt class="font-medium text-slate-800">Certificate errors</dt><dd>Point <code class="font-mono">ca_bundle:</code> in the config file (or <code class="font-mono">SCD_CA_BUNDLE</code>) at a PEM file that includes the Fermilab CA.</dd></div>
+      <div><dt class="font-medium text-slate-800">Server log</dt><dd>The server writes diagnostics to standard error, which Claude Code shows with <code class="font-mono">claude --debug</code> or in <code class="font-mono">/mcp</code>.</dd></div>
+      <div><dt class="font-medium text-slate-800">What the assistant can do</dt><dd>Everything your token can: read what you can read, export (each export is audit-logged), and post entries under your name. Revoke or regenerate the token on your Profile to cut off access immediately.</dd></div>
+    </dl>
+  </section>
+
+</div>
+
+<style>
+  .snippet { position: relative; }
+  .snippet pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.375rem; padding: 0.75rem 4.5rem 0.75rem 0.75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; line-height: 1.5; color: #334155; overflow-x: auto; white-space: pre; }
+  .snippet .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; }
+  .copy-btn { font-size: 0.7rem; font-weight: 600; color: #1e40af; background: #dbeafe; border-radius: 0.25rem; padding: 0.15rem 0.5rem; }
+  .copy-btn:hover { background: #bfdbfe; }
+  .copy-btn:focus-visible { outline: 2px solid #1e40af; outline-offset: 2px; }
+  .kind { font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.45rem; border-radius: 9999px; }
+  .kind-read  { color: #1d4ed8; background: #dbeafe; }
+  .kind-write { color: #b45309; background: #fef3c7; }
+  .kind-paid  { color: #7e22ce; background: #f3e8ff; }
+</style>
+<script>
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.getElementById(btn.dataset.copyTarget);
+      var text = el.innerText;
+      var done = function () { var t = btn.textContent; btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = t; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        var r = document.createRange(); r.selectNodeContents(el);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      }
+    });
+  });
+</script>
+{% endblock %}

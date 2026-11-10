@@ -14,6 +14,7 @@ urlpatterns = [
     path('dashboard/prompt-config/',        views.DashboardPromptConfigView.as_view(),        name='dashboard-prompt-config'),
     path('about/', views.AboutView.as_view(), name='about'),
     path('api/',   views.ApiView.as_view(),   name='api'),
+    path('mcp/',   views.McpView.as_view(),   name='mcp'),
     path('api/entries/', EntryCreateAPIView.as_view(), name='api-entry-create'),
     path('api/entries/<int:pk>/', EntryDetailAPIView.as_view(), name='api-entry-detail'),
     path('api/reports/',          ReportAPIView.as_view(),        name='api-reports'),
