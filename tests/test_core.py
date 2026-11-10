@@ -156,3 +156,9 @@ class TestRenderMarkdown:
         from apps.core.markdown import render_markdown
         assert render_markdown('') == ''
         assert render_markdown(None) == ''
+
+
+def test_about_page_shows_copyright_and_license(client, db):
+    body = client.get('/about/').content.decode()
+    assert '&copy; 2026 Andrew Norman for Fermi Forward Discovery Group LLC' in body
+    assert 'blob/main/LICENSE' in body and 'MIT License' in body

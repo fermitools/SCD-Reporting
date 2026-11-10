@@ -23,6 +23,7 @@ The application is designed to work in the Fermilab security environment and wit
 - [Environment Variables](#environment-variables)
 - [API](#api)
 - [Management Commands](#management-commands)
+- [License](#license)
 
 ---
 
@@ -667,3 +668,11 @@ python manage.py send_reminders --dry-run   # rehearse, change nothing
 ```
 
 See [Email Reminders](#email-reminders) and `docs/man/scd-send-reminders.1`.
+
+---
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 Andrew Norman for Fermi Forward Discovery Group LLC.
+
+Third-party dependencies keep their own licenses (Django and django-filter: BSD-3-Clause; django-allauth, openpyxl, Tailwind CSS, the Anthropic and MCP SDKs: MIT).

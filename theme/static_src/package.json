@@ -1,6 +1,7 @@
 {
   "name": "scd-reporting-theme",
   "version": "0.1.0",
+  "license": "MIT",
   "scripts": {
     "start": "tailwindcss --input ./src/styles.css --output ../static/css/dist/styles.css --watch",
     "build": "tailwindcss --input ./src/styles.css --output ../static/css/dist/styles.css --minify"
